@@ -5,7 +5,7 @@
 # a venv in Vendor/ (needs uv). Does nothing when that build is already there; build.sh runs it every time.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-TAG=b11461   # the first tags with EmbeddingGemma 2 (text + vision + audio) are b11452+
+TAG=b11461   # Pinned Qwen3-VL embedding and mtmd runtime, covered by ReferenceVectorTests.
 # A new TAG ships only if `swift test` passes: ReferenceVectorTests checks it makes the same vectors, so every index is
 # kept. If it fails, keep this TAG, or bump LlamaEmbedder.vectorVersion and write the reference vectors again
 # (DIGUP_WRITE_REFERENCE=1 swift test --filter ReferenceVectorTests): every index then embeds again.

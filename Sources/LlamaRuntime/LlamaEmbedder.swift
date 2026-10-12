@@ -2,75 +2,50 @@ import CLlama
 import DigUpKit
 import Foundation
 
-/// EmbeddingGemma 2 on llama.cpp (Metal), in this process: the image and audio encoders (mtmd) feed the text model, and
-/// its mean-pooled, L2-normalized output is the vector.
-///
-/// Inputs are framed as the reference (mlx-vlm, transformers) frames them: `<bos> text <eos>`,
-/// `<bos> <|image> soft tokens <image|> <eos>` and the same for audio. The model is non-causal with no KV cache, so
-/// each input, token ids and encoder rows together, goes through one `llama_process` call, as llama-server's mixed
-/// batches do. Measured against mlx-vlm bf16: cosine ≥ 0.999 on text and images, 0.9998 on a 30 s audio window.
-/// Audio past 30 s is dropped, as in the reference.
-///
-/// One thread at a time; `close()` frees the model (about 1 GB, or 0.25 GB text-only).
+/// Qwen3-VL-Embedding on llama.cpp. Each input uses its own causal context.
+/// Pool the final assistant-prefix token, then L2-normalize the 2048 values.
+/// Media goes through mtmd's complete M-RoPE + DeepStack path.
 public final class LlamaEmbedder: Embedder {
     public static let budgets = [70, 140, 280, 560, 1120]
-
-    /// Which vectors this pipeline makes (the model files, llama.cpp, the resizing here, the prompts). It changes only
-    /// when the vectors do, and `ReferenceVectorTests` says when that is: every llama.cpp update must reproduce the
-    /// reference vectors, or come with a new version here (then every index embeds again). Indexes record this, not the
-    /// llama.cpp build, so an update that leaves the vectors alone keeps them (b11461 made version 1).
-    public static let vectorVersion = 1
-
-    /// The llama.cpp release this was built with (`scripts/build-llama.sh`), for logs.
+    public static let vectorVersion = 2
     public static let buildTag = LLAMA_BUILD_TAG
-
-    /// What every LlamaEmbedder reports (its `vectorSource` goes into index fingerprints), known without loading it.
-    public static let modelInfo = WorkerInfo(model: "google/embeddinggemma-2", revision: LlamaModels.revision,
-                                             runtime: "llama.cpp-vectors\(vectorVersion)",
-                                             dtype: "text-q8_0+mmproj-q8_0", dim: 768, textOnly: false,
+    public static let modelInfo = WorkerInfo(model: "Qwen/Qwen3-VL-Embedding-2B", revision: LlamaModels.revision,
+                                             runtime: "llama.cpp-qwen-zh-vectors\(vectorVersion)",
+                                             dtype: "text-q4_k_m+mmproj-f16", dim: 2048, textOnly: false,
                                              loadSeconds: nil)
-
     public private(set) var info: WorkerInfo
     private var model: OpaquePointer?
     private var context: OpaquePointer?
     private var media: OpaquePointer?
     private var batch: OpaquePointer?
     private let vocab: OpaquePointer?
-    private let embeddingSize: Int   // 768: the output projection
-    private let rowSize: Int         // the width of encoder rows fed to the text model
     private let maxTokens: Int
-    private static let maxSequences = 16
-    private var sequences: Int32 = 0  // in `batch`
-    private var tokens = 0            // in `batch`
-    private var position: llama_pos = 0
+    private static let batchSize = 2048
 
-    /// `textOnly`: just the text model (queries). `log`: where llama.cpp's warnings and errors go (stderr when nil).
     public init(models: LlamaModels, textOnly: Bool, log: URL? = nil) throws {
         let started = Date()
         LlamaLog.shared.send(to: log)
         _ = Self.backend
         guard textOnly || models.media != nil else {
-            throw WorkerError.notFound("\(LlamaModels.mediaFile) (images and audio) isn't downloaded yet")
+            throw WorkerError.notFound("图片模型尚未就绪：\(LlamaModels.mediaFile)")
         }
         var modelParams = llama_model_default_params()
         modelParams.n_gpu_layers = 999
         guard let model = llama_model_load_from_file(models.text.path, modelParams) else {
-            throw WorkerError.failed("can't load \(models.text.path)")
+            throw WorkerError.failed("无法加载模型：\(models.text.lastPathComponent)")
         }
-        // One input must fit one micro-batch: 2048 tokens (the reference's cut), which also holds a 1120-token image or
-        // a 750-token 30 s clip. Queries are short, so the query encoder reserves less and cuts at 512.
-        let maxTokens = textOnly ? 512 : 2048
+        let maxTokens = textOnly ? 2048 : 8192
         var params = llama_context_default_params()
         params.n_ctx = UInt32(maxTokens)
-        params.n_batch = UInt32(maxTokens)
-        params.n_ubatch = UInt32(maxTokens)
-        params.n_seq_max = UInt32(Self.maxSequences)
-        params.kv_unified = true   // each input may use the whole context, as in llama-embedding
+        params.n_batch = UInt32(Self.batchSize)
+        params.n_ubatch = 512
+        params.n_seq_max = 1
         params.embeddings = true
-        params.pooling_type = LLAMA_POOLING_TYPE_MEAN
+        params.pooling_type = LLAMA_POOLING_TYPE_LAST
+        params.attention_type = LLAMA_ATTENTION_TYPE_CAUSAL
         guard let context = llama_init_from_model(model, params) else {
             llama_model_free(model)
-            throw WorkerError.failed("can't create a llama.cpp context")
+            throw WorkerError.failed("无法初始化模型")
         }
         var media: OpaquePointer?
         if let mediaFile = models.media, !textOnly {
@@ -78,13 +53,13 @@ public final class LlamaEmbedder: Embedder {
             mediaParams.use_gpu = true
             mediaParams.print_timings = false
             mediaParams.warmup = true
-            mediaParams.image_min_tokens = 1      // never rescale: images arrive at their final size (ImageSizing)
+            mediaParams.image_min_tokens = 64
             mediaParams.image_max_tokens = 1120
             media = mtmd_init_from_file(mediaFile.path, model, mediaParams)
             if media == nil {
                 llama_free(context)
                 llama_model_free(model)
-                throw WorkerError.failed("can't load \(mediaFile.path)")
+                throw WorkerError.failed("无法加载图片模型：\(mediaFile.lastPathComponent)")
             }
         }
         self.model = model
@@ -92,15 +67,13 @@ public final class LlamaEmbedder: Embedder {
         self.media = media
         batch = llama_batch_ext_init(context)
         vocab = llama_model_get_vocab(model)
-        embeddingSize = Int(llama_model_n_embd_out(model))
-        rowSize = Int(llama_model_n_embd_inp(model))
         self.maxTokens = maxTokens
         let known = Self.modelInfo
         info = WorkerInfo(model: known.model, revision: known.revision, runtime: known.runtime, dtype: known.dtype,
-                          dim: embeddingSize, textOnly: textOnly, loadSeconds: nil)
-        // The first calls build the Metal pipelines: pay that now (the panel is opening).
+                          dim: Int(llama_model_n_embd_out(model)), textOnly: textOnly, loadSeconds: nil)
         do {
-            for _ in 0..<2 { _ = try embedTexts([Prompts.query("warm up")]) }
+            guard info.dim == 2048 else { throw WorkerError.failed("模型维度不匹配，请使用指定的 Qwen 模型") }
+            _ = try embedTexts([Prompts.query("准备搜索")])
         } catch {
             close()
             throw error
@@ -108,12 +81,10 @@ public final class LlamaEmbedder: Embedder {
         let seconds = (Date().timeIntervalSince(started) * 100).rounded() / 100
         info = WorkerInfo(model: info.model, revision: info.revision, runtime: info.runtime, dtype: info.dtype,
                           dim: info.dim, textOnly: textOnly, loadSeconds: seconds)
-        LlamaLog.shared.line("ready in \(seconds) s (\(textOnly ? "text-only" : "full"), llama.cpp \(Self.buildTag), "
-                             + "vectors \(Self.vectorVersion))")
+        LlamaLog.shared.line("Qwen ready in \(seconds) s (\(textOnly ? "text-only" : "text+vision"), \(Self.buildTag))")
     }
 
     deinit { close() }
-
     public func close() {
         if let batch { llama_batch_ext_free(batch) }
         if let media { mtmd_free(media) }
@@ -122,181 +93,114 @@ public final class LlamaEmbedder: Embedder {
         (batch, media, context, model) = (nil, nil, nil, nil)
     }
 
-    // MARK: Embedder
-
     public func embedTexts(_ texts: [String]) throws -> [[Float]] {
-        reset()
-        var vectors: [[Float]] = []
-        for text in texts {
-            let tokens = tokenize(text)
-            if sequences == Self.maxSequences || self.tokens + tokens.count > maxTokens { vectors += try run() }
-            begin()
-            for token in tokens { try add(token: token) }
+        guard context != nil else { throw WorkerError.failed("模型已关闭") }
+        return try texts.map { text in
+            reset()
+            let tokens = try tokenize(text)
+            try decode(tokens, at: 0, output: true)
+            return try vector()
         }
-        if sequences > 0 { vectors += try run() }
-        return vectors
     }
 
     public func embedImages(_ paths: [String], budget: Int) throws -> [Embedding] {
-        guard media != nil else { throw WorkerError.failed("this embedder was started text-only") }
-        guard Self.budgets.contains(budget) else { throw WorkerError.failed("budget must be one of \(Self.budgets)") }
-        return paths.map { path in embedding { try embedMedia(path, image: true, budget: budget) } }
+        guard media != nil else { throw WorkerError.failed("当前只加载了文字模型") }
+        guard Self.budgets.contains(budget) else { throw WorkerError.failed("无效的图片精度") }
+        return paths.map { path in
+            do { return Embedding(vector: try embedImage(path, budget: budget), error: nil) }
+            catch { return Embedding(vector: nil, error: String("\(error)".prefix(300))) }
+        }
     }
 
     public func embedAudio(_ paths: [String]) throws -> [Embedding] {
-        guard media != nil else { throw WorkerError.failed("this embedder was started text-only") }
-        return paths.map { path in embedding { try embedMedia(path, image: false, budget: 0) } }
+        paths.map { _ in Embedding(vector: nil, error: "Qwen3-VL-Embedding 不支持音频内容；视频仅检索画面。") }
     }
 
-    /// One file's vector, or why it has none (an unreadable file must not sink its neighbours).
-    private func embedding(_ make: () throws -> [Float]) -> Embedding {
-        do {
-            return Embedding(vector: try make(), error: nil)
-        } catch {
-            return Embedding(vector: nil, error: String("\(error)".prefix(300)))
-        }
+    private func reset() {
+        llama_batch_ext_clear(batch)
+        if let memory = llama_get_memory(context) { llama_memory_clear(memory, true) }
     }
 
-    // MARK: Media
-
-    private func embedMedia(_ path: String, image: Bool, budget: Int) throws -> [Float] {
-        let bitmap = try load(path, image: image, budget: budget)
-        defer { mtmd_bitmap_free(bitmap) }
-        let chunks = mtmd_input_chunks_init()
-        defer { mtmd_input_chunks_free(chunks) }
-        var bitmaps: [OpaquePointer?] = [bitmap]
-        let status = String(cString: mtmd_default_marker()).withCString { marker in
-            var text = mtmd_input_text(text: marker, text_len: strlen(marker), add_special: true, parse_special: true)
-            return mtmd_tokenize(media, chunks, &text, &bitmaps, 1)
+    /// Do not silently truncate: readers split long passages before this layer.
+    private func tokenize(_ text: String) throws -> [llama_token] {
+        let utf8 = Array(text.utf8CString)
+        var tokens = [llama_token](repeating: 0, count: utf8.count + 8)
+        var count = llama_tokenize(vocab, utf8, Int32(utf8.count - 1), &tokens, Int32(tokens.count), false, true)
+        if count < 0 {
+            tokens = [llama_token](repeating: 0, count: Int(-count))
+            count = llama_tokenize(vocab, utf8, Int32(utf8.count - 1), &tokens, Int32(tokens.count), false, true)
         }
-        guard status == 0 else { throw LlamaError("can't tokenize \(path) (\(status))") }
-        reset()
-        begin()
-        for index in 0..<mtmd_input_chunks_size(chunks) {
-            let chunk = mtmd_input_chunks_get(chunks, index)
-            if mtmd_input_chunk_get_type(chunk) == MTMD_INPUT_CHUNK_TYPE_TEXT {
-                var count = 0
-                guard let tokens = mtmd_input_chunk_get_tokens_text(chunk, &count) else { continue }
-                for i in 0..<count { try add(token: tokens[i]) }
-            } else {
-                guard mtmd_encode_chunk(media, chunk) == 0, let rows = mtmd_get_output_embd(media) else {
-                    throw LlamaError("the encoder failed on \(path)")
+        guard count > 0 else { throw WorkerError.failed("无法读取输入文字") }
+        guard count <= maxTokens else { throw WorkerError.failed("文字过长，请缩短搜索内容或拆分文档段落") }
+        return Array(tokens.prefix(Int(count)))
+    }
+
+    private func decode(_ tokens: [llama_token], at start: llama_pos, output: Bool) throws {
+        for offset in stride(from: 0, to: tokens.count, by: Self.batchSize) {
+            llama_batch_ext_clear(batch)
+            let end = min(tokens.count, offset + Self.batchSize)
+            for i in offset..<end {
+                let index = llama_batch_ext_add_token(batch, 0, tokens[i])
+                var position = start + llama_pos(i)
+                guard index >= 0, llama_batch_ext_set_pos(batch, index, &position) else {
+                    throw WorkerError.failed("无法准备文字输入")
                 }
-                try add(rows: rows, count: mtmd_input_chunk_get_n_tokens(chunk))
+                if output && i == tokens.count - 1 { _ = llama_batch_ext_set_output_embd(batch, index, true) }
             }
+            let status = llama_process(context, LLAMA_PROCESS_TYPE_DECODE, batch)
+            guard status == 0 else { throw WorkerError.failed("模型计算失败（\(status)）") }
         }
-        return try run()[0]
     }
 
-    /// Reads an image or audio file with mtmd's helpers (stb_image, miniaudio at 16 kHz), resizes images for `budget`
-    /// and cuts audio at 30 s. The caller frees the bitmap.
-    private func load(_ path: String, image: Bool, budget: Int) throws -> OpaquePointer {
+    private func embedImage(_ path: String, budget: Int) throws -> [Float] {
         let wrapper = mtmd_helper_bitmap_init_from_file(media, path, false, mtmd_helper_init_opt_default())
         if let video = wrapper.video_ctx {
             if let bitmap = wrapper.bitmap { mtmd_bitmap_free(bitmap) }
             mtmd_helper_video_free(video)
-            throw LlamaError("video goes in as frames and sound, not as a file: \(path)")
+            throw LlamaError("请先将视频读取为画面")
         }
-        guard let bitmap = wrapper.bitmap else { throw LlamaError("can't read \(path)") }
-        guard mtmd_bitmap_is_audio(bitmap) != image else {
-            mtmd_bitmap_free(bitmap)
-            throw LlamaError("not \(image ? "an image" : "audio"): \(path)")
+        guard let original = wrapper.bitmap else { throw LlamaError("无法读取图片：\(path)") }
+        defer { mtmd_bitmap_free(original) }
+        guard !mtmd_bitmap_is_audio(original) else { throw LlamaError("不支持音频输入") }
+        let width = Int(mtmd_bitmap_get_nx(original)), height = Int(mtmd_bitmap_get_ny(original))
+        let scale = min(1, sqrt(Double(budget * 32 * 32) / Double(max(1, width * height))))
+        let targetW = max(32, Int(Double(width) * scale / 32) * 32)
+        let targetH = max(32, Int(Double(height) * scale / 32) * 32)
+        let pixels = ImageSizing.resizeBicubic(mtmd_bitmap_get_data(original), width: width, height: height,
+                                              toWidth: targetW, toHeight: targetH)
+        guard let bitmap = mtmd_bitmap_init(UInt32(targetW), UInt32(targetH), pixels) else {
+            throw LlamaError("无法准备图片")
         }
-        if image {
-            let width = Int(mtmd_bitmap_get_nx(bitmap)), height = Int(mtmd_bitmap_get_ny(bitmap))
-            guard let target = ImageSizing.targetSize(height: height, width: width, budget: budget) else {
-                mtmd_bitmap_free(bitmap)
-                throw LlamaError("image too thin to embed: \(path)")
-            }
-            guard target != (height, width) else { return bitmap }
-            defer { mtmd_bitmap_free(bitmap) }
-            let pixels = ImageSizing.resizeBicubic(mtmd_bitmap_get_data(bitmap), width: width, height: height,
-                                                   toWidth: target.width, toHeight: target.height)
-            guard let resized = mtmd_bitmap_init(UInt32(target.width), UInt32(target.height), pixels) else {
-                throw LlamaError("can't resize \(path)")
-            }
-            return resized
-        }
-        let samples = mtmd_bitmap_get_n_bytes(bitmap) / MemoryLayout<Float>.size
-        let limit = 30 * Int(mtmd_get_audio_sample_rate(media))
-        guard samples > limit else { return bitmap }
         defer { mtmd_bitmap_free(bitmap) }
-        let prefix = mtmd_bitmap_get_data(bitmap).withMemoryRebound(to: Float.self, capacity: limit) {
-            mtmd_bitmap_init_from_audio(limit, $0)
+        let chunks = mtmd_input_chunks_init()
+        defer { mtmd_input_chunks_free(chunks) }
+        var bitmaps: [OpaquePointer?] = [bitmap]
+        let prompt = Prompts.framed(String(cString: mtmd_default_marker()))
+        let status = prompt.withCString { pointer in
+            var input = mtmd_input_text(text: pointer, text_len: strlen(pointer), add_special: false, parse_special: true)
+            return mtmd_tokenize(media, chunks, &input, &bitmaps, 1)
         }
-        guard let prefix else { throw LlamaError("can't cut \(path) at 30 s") }
-        return prefix
+        guard status == 0 else { throw LlamaError("图片输入失败（\(status)）") }
+        guard mtmd_helper_get_n_tokens(chunks) <= maxTokens else { throw LlamaError("图片内容过长") }
+        reset()
+        var position: llama_pos = 0
+        let result = mtmd_helper_eval_chunks(media, context, chunks, 0, 0, Int32(Self.batchSize), true, &position)
+        guard result == 0 else { throw LlamaError("图片计算失败（\(result)）") }
+        return try vector()
     }
 
-    // MARK: Text model
-
-    /// `<bos> text <eos>`, cut to `maxTokens` the way transformers cuts (keeping both special tokens).
-    private func tokenize(_ text: String) -> [llama_token] {
-        let utf8 = Array(text.utf8CString)
-        var tokens = [llama_token](repeating: 0, count: utf8.count + 8)
-        var count = llama_tokenize(vocab, utf8, Int32(utf8.count - 1), &tokens, Int32(tokens.count), true, true)
-        if count < 0 {
-            tokens = [llama_token](repeating: 0, count: Int(-count))
-            count = llama_tokenize(vocab, utf8, Int32(utf8.count - 1), &tokens, Int32(tokens.count), true, true)
+    private func vector() throws -> [Float] {
+        guard let pooled = llama_get_embeddings_seq(context, 0) else {
+            throw WorkerError.failed("模型未返回向量")
         }
-        tokens.removeLast(tokens.count - Int(max(count, 0)))
-        if tokens.count > maxTokens {
-            tokens = Array(tokens[0..<(maxTokens - 1)]) + [llama_vocab_eos(vocab)]
-        }
-        return tokens
+        var values = Array(UnsafeBufferPointer(start: pooled, count: 2048))
+        guard values.allSatisfy({ $0.isFinite }) else { throw WorkerError.failed("模型返回无效数值") }
+        let norm = values.reduce(0.0) { $0 + Double($1) * Double($1) }.squareRoot()
+        guard norm > 0 else { throw WorkerError.failed("模型返回空向量") }
+        for i in values.indices { values[i] /= Float(norm) }
+        return values
     }
 
-    /// Starts the next input in the batch (each input is its own sequence).
-    private func begin() {
-        sequences += 1
-        position = 0
-    }
-
-    /// Drops everything added so far, including an input that failed halfway.
-    private func reset() {
-        llama_batch_ext_clear(batch)
-        sequences = 0
-        tokens = 0
-    }
-
-    private func add(token: llama_token) throws {
-        try place(llama_batch_ext_add_token(batch, sequences - 1, token))
-    }
-
-    private func add(rows: UnsafeMutablePointer<Float>, count: Int) throws {
-        for row in 0..<count {
-            let embd = llama_embd(data: rows + row * rowSize, n_rows: 1, n_embd: rowSize)   // copied by the batch
-            try place(llama_batch_ext_add_embd(batch, sequences - 1, embd))
-        }
-    }
-
-    private func place(_ index: Int32) throws {
-        guard index >= 0 else { throw LlamaError("batch full (\(index))") }
-        var pos: [llama_pos] = [position, 0, 0, 0]
-        guard llama_batch_ext_set_pos(batch, index, &pos), llama_batch_ext_set_output_embd(batch, index, true) else {
-            throw LlamaError("can't place token \(index)")
-        }
-        position += 1
-        tokens += 1
-    }
-
-    /// Runs the text model over the batch and returns one L2-normalized vector per input, in order.
-    private func run() throws -> [[Float]] {
-        defer { reset() }
-        let status = llama_process(context, LLAMA_PROCESS_TYPE_ENCODE, batch)
-        guard status == 0 else { throw WorkerError.failed("llama_process failed (\(status))") }
-        return try (0..<sequences).map { sequence in
-            guard let pooled = llama_get_embeddings_seq(context, sequence) else {
-                throw WorkerError.failed("no pooled embedding for input \(sequence)")
-            }
-            var sum = 0.0
-            for i in 0..<embeddingSize { sum += Double(pooled[i]) * Double(pooled[i]) }
-            let scale = sum > 0 ? Float(1 / sum.squareRoot()) : 0
-            return (0..<embeddingSize).map { pooled[$0] * scale }
-        }
-    }
-
-    /// llama.cpp's process-wide setup, once.
     private static let backend: Void = {
         llama_log_set(LlamaLog.callback, LlamaLog.userData)
         mtmd_helper_log_set(LlamaLog.callback, LlamaLog.userData)

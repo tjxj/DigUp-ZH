@@ -30,12 +30,12 @@ struct SearchPanelView: View {
                 .font(.system(size: controller.isCode ? 17 : 20, weight: .semibold))
                 .foregroundStyle(Brand.gradient)
                 .frame(width: 24)
-                .help(controller.isCode ? "Searching your code" : "")
+                .help(controller.isCode ? "正在搜索代码" : "")
             // With code search on, one example is code's: nothing else in the panel shows "code:".
             SearchField(text: $controller.query, fontSize: 22,
                         placeholder: controller.model.hasCode
-                            ? "Describe it: “zebra in a video”, “code: retry with backoff”…"
-                            : "Describe it: “payment error screenshot”, “zebra in a video”…") {
+                            ? "描述要找的内容：“海边的小狗”“code: 失败重试”…"
+                            : "描述要找的内容：“支付失败截图”“海边的小狗”…") {
                 controller.field = $0
             }
             if controller.phase == .words, controller.encoder == .starting {
@@ -61,18 +61,18 @@ struct SearchPanelView: View {
         } else if controller.results.isEmpty {
             VStack(spacing: 8) {
                 if controller.phase == .words {
-                    Text("Searching…").foregroundStyle(.secondary)
+                    Text("正在搜索…").foregroundStyle(.secondary)
                 } else if !controller.model.hasFolders {
-                    Text("No folders chosen yet").font(.system(size: 15, weight: .semibold))
-                    Text("DigUp only searches the folders you pick.").foregroundStyle(.secondary)
-                    Button("Choose Folders…") { controller.chooseFolders() }
+                    Text("尚未选择文件夹").font(.system(size: 15, weight: .semibold))
+                    Text("DigUp-ZH 只搜索你选择的文件夹。").foregroundStyle(.secondary)
+                    Button("选择文件夹…") { controller.chooseFolders() }
                         .padding(.top, 4)
                 } else if controller.isCode {
-                    Text("No good matches in your code").font(.system(size: 15, weight: .semibold))
-                    Text("Try saying what the code does, or a name that's in it.").foregroundStyle(.secondary)
+                    Text("暂未找到相关代码").font(.system(size: 15, weight: .semibold))
+                    Text("试着描述代码的用途，或输入函数、变量等名称。").foregroundStyle(.secondary)
                 } else {
-                    Text("No good matches").font(.system(size: 15, weight: .semibold))
-                    Text("Try what you'd see or hear in it, or words you remember from it.")
+                    Text("暂未找到相关结果").font(.system(size: 15, weight: .semibold))
+                    Text("试着描述画面中的内容，或输入记得的文字。")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -121,31 +121,31 @@ struct SearchPanelView: View {
     private var keysText: String {
         let row = controller.selectedRow
         if let row, row.kind == .code {
-            let line = row.segment == .lines ? " at line \(row.codeLine)" : ""
-            return "↩ \(row.openTitle)\(line)   ⌘↩ Reveal   ␣ Quick Look   ⌘C Copy"
+            let line = row.segment == .lines ? "，第 \(row.codeLine) 行" : ""
+            return "↩ \(row.openTitle)\(line)   ⌘↩ 访达   ␣ 预览   ⌘C 复制"
         }
-        let place = row?.jump.map { " at \($0)" } ?? ""
-        return "↩ \(row?.openTitle ?? "Open")   ⌘↩ Reveal   ␣ Quick Look\(place)   ⌘C Copy"
+        let place = row?.jump.map { "，\($0)" } ?? ""
+        return "↩ \(row?.openTitle ?? "打开")   ⌘↩ 访达   ␣ 预览\(place)   ⌘C 复制"
     }
 
     private var statusText: String {
         if let note = controller.note { return note }
         switch controller.phase {
         case .words:
-            return controller.encoder == .starting ? "Matching words; meaning search is warming up…" : "Matching words…"
+            return controller.encoder == .starting ? "正在匹配文字，语义搜索正在准备…" : "正在匹配文字…"
         case .wordsOnly:
-            return controller.model.meaningUnavailable ?? "Words only: meaning search isn't available"
+            return controller.model.meaningUnavailable ?? "语义搜索暂不可用，目前仅匹配文字"
         case .codeHint, .codeOff:
-            return controller.phase == .codeOff ? "Code search is off" : "Searching your code"
+            return controller.phase == .codeOff ? "代码搜索尚未开启" : "正在搜索代码"
         case .meaning, .empty:
             if controller.isCode, let indexing = controller.model.status.code.indexing, indexing.total > 0 {
-                return "Still reading code (\(Int(Double(indexing.done) / Double(indexing.total) * 100))%): some isn't in yet"
+                return "正在处理代码（\(Int(Double(indexing.done) / Double(indexing.total) * 100))%），部分代码尚不可搜索"
             }
             if !controller.isCode, let caveat = controller.model.resultsCaveat { return caveat }
             let count = controller.results.strongRows.count
             let weaker = controller.results.weaker.count
-            return (count == 1 ? "1 result" : "\(count) results") + (controller.isCode ? " in your code" : "")
-                + (weaker > 0 ? " · \(weaker) weaker" : "")
+            return (count == 1 ? "1 个结果" : "\(count) 个结果") + (controller.isCode ? " · 代码" : "")
+                + (weaker > 0 ? " · \(weaker) 个其他相关结果" : "")
         }
     }
 }
@@ -173,14 +173,14 @@ private struct ResultList: View {
                             Button {
                                 controller.openInWindow(group.kind)
                             } label: {
-                                Text("Show all \(group.total) \(group.kind.title.lowercased())…")
+                                Text("查看全部 \(group.total) 个\(group.kind.title)结果…")
                                     .font(.system(size: 11.5, weight: .medium))
                                     .foregroundStyle(Color.accentColor)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 3)
                             }
                             .buttonStyle(.plain)
-                            .help("Open them in the DigUp window (⌘O shows everything)")
+                            .help("在 DigUp-ZH 窗口中查看（⌘O 显示全部结果）")
                         }
                     }
                     if !controller.results.weaker.isEmpty {
@@ -284,7 +284,7 @@ private struct WeakerRow: View {
             Image(systemName: "chevron.right")
                 .font(.system(size: 9.5, weight: .bold))
                 .rotationEffect(.degrees(expanded ? 90 : 0))
-            Text(expanded ? "Weaker matches" : "\(count) weaker \(count == 1 ? "match" : "matches")")
+            Text(expanded ? "其他可能相关的结果" : "\(count) 个其他可能相关的结果")
                 .font(.system(size: 11.5, weight: .medium))
             Spacer()
         }
@@ -307,10 +307,10 @@ private struct WeakerExplainer: View {
             Image(systemName: "line.3.horizontal.decrease.circle")
                 .font(.system(size: 30, weight: .light))
                 .foregroundStyle(.tertiary)
-            Text(expanded ? "Weaker matches" : "\(count) weaker \(count == 1 ? "match" : "matches")")
+            Text(expanded ? "其他可能相关的结果" : "\(count) 个其他可能相关的结果")
                 .font(.system(size: 14, weight: .semibold))
-            Text("They match much less well than the results above. Press Return to "
-                 + (expanded ? "fold them away." : "show them."))
+            Text("这些结果的相关程度较低。按回车可"
+                 + (expanded ? "收起。" : "展开。"))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -376,7 +376,7 @@ struct SearchField: NSViewRepresentable {
         field.cell?.isScrollable = true
         field.cell?.wraps = false
         field.delegate = context.coordinator
-        field.setAccessibilityLabel("Search")
+        field.setAccessibilityLabel("搜索")
         onMake(field)
         return field
     }
@@ -425,7 +425,7 @@ final class FocusReportingField: NSTextField {
 struct FileDragArea: NSViewRepresentable {
     let url: URL
     /// "Open at 0:06": what double-click and the menu's first item do.
-    var openTitle = "Open"
+    var openTitle = "打开"
     let onClick: () -> Void
     let onOpen: () -> Void
 
@@ -441,7 +441,7 @@ struct FileDragArea: NSViewRepresentable {
 
 final class FileDragView: NSView, NSDraggingSource {
     var url: URL?
-    var openTitle = "Open"
+    var openTitle = "打开"
     var onClick: () -> Void = {}
     var onOpen: () -> Void = {}
     private var mouseDownEvent: NSEvent?
@@ -483,13 +483,13 @@ final class FileDragView: NSView, NSDraggingSource {
         onClick()
         let menu = NSMenu()
         menu.addItem(ActionMenuItem(openTitle) { [onOpen] in onOpen() })
-        menu.addItem(ActionMenuItem("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) })
+        menu.addItem(ActionMenuItem("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([url]) })
         menu.addItem(.separator())
-        menu.addItem(ActionMenuItem("Copy") {
+        menu.addItem(ActionMenuItem("复制") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.writeObjects([url as NSURL])
         })
-        menu.addItem(ActionMenuItem("Copy Path") {
+        menu.addItem(ActionMenuItem("复制路径") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(url.path, forType: .string)
         })
@@ -507,8 +507,8 @@ final class FileDragView: NSView, NSDraggingSource {
 private struct CodeHint: View {
     let controller: SearchPanelController
 
-    static let examples = ["code: retry a request with backoff", "code: where the settings are saved",
-                           "code: parse the command line options"]
+    static let examples = ["code: 请求失败后逐步延时重试", "code: 设置保存在哪里",
+                           "code: 解析命令行参数"]
 
     var body: some View {
         VStack(spacing: 10) {
@@ -516,17 +516,17 @@ private struct CodeHint: View {
                 .font(.system(size: 26, weight: .medium))
                 .foregroundStyle(Brand.gradient)
             if controller.phase == .codeOff {
-                Text("Code search is off").font(.system(size: 15, weight: .semibold))
-                Text("DigUp can find code by what it does, in the folders you pick. Code gets an index of its own "
-                     + "and never shows up in other searches.")
+                Text("代码搜索尚未开启").font(.system(size: 15, weight: .semibold))
+                Text("DigUp-ZH 能按用途搜索你选定文件夹中的代码。代码会单独建立索引，"
+                     + "仅在代码搜索中显示。")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 420)
-                Button("Choose Code Folders…") { controller.setUpCodeSearch() }
+                Button("选择代码文件夹…") { controller.setUpCodeSearch() }
                     .padding(.top, 4)
             } else {
-                Text("Search your code").font(.system(size: 15, weight: .semibold))
-                Text("Say what the code does, or type a name that's in it.").foregroundStyle(.secondary)
+                Text("搜索代码").font(.system(size: 15, weight: .semibold))
+                Text("描述代码的用途，或输入函数、变量等名称。").foregroundStyle(.secondary)
                 VStack(spacing: 6) {
                     ForEach(Self.examples, id: \.self) { example in
                         Button { controller.tryExample(example) } label: {

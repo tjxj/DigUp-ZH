@@ -8,10 +8,10 @@ enum SettingsTab: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .general: "General"
-        case .folders: "Folders"
-        case .code: "Code"
-        case .storage: "Storage"
+        case .general: "通用"
+        case .folders: "文件夹"
+        case .code: "代码"
+        case .storage: "存储与隐私"
         }
     }
 
@@ -197,8 +197,8 @@ private struct GeneralSettings: View {
                                      listening: { state.app.hotkeyRecording($0) }, capSize: 13)
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Search shortcut")
-                        Text("Opens the search panel from any app.")
+                        Text("搜索快捷键")
+                        Text("在任何应用中打开搜索面板。")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
@@ -210,32 +210,22 @@ private struct GeneralSettings: View {
                     state.launchAtLogin = state.app.launchesAtLogin
                 })) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Open DigUp when you log in")
-                        Text(state.loginProblem ?? "So the shortcut always works.")
+                        Text("登录时打开 DigUp-ZH")
+                        Text(state.loginProblem ?? "登录后随时使用搜索快捷键。")
                             .font(.system(size: 11))
                             .foregroundStyle(state.loginProblem == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red))
                     }
                 }
             }
             Section {
-                Toggle(isOn: Binding(get: { state.checksForUpdates }, set: { on in
-                    state.app.updates.automaticallyChecks = on
-                    state.checksForUpdates = on
-                })) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Check for updates automatically")
-                        Text("Once a day DigUp asks GitHub for its newest version; nothing about your files is sent. "
-                             + "Updates install with one click.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
+                Text("前往 DigUp-ZH 的 GitHub 发布页查看并下载新版本。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
                 LabeledContent {
-                    Button("Check Now") { state.app.updates.checkNow() }
+                    Button("查看发布页") { state.app.updates.checkNow() }
                 } label: {
-                    Text(state.model.updateAvailable.map { "DigUp \($0) is available" }
-                         ?? "DigUp \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
+                    Text(state.model.updateAvailable.map { "DigUp-ZH \($0) 已发布" }
+                         ?? "DigUp-ZH \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
                 }
             }
         }
@@ -256,7 +246,7 @@ private struct FolderSettings: View {
             Section {
                 if let summaries = state.summaries {
                     if summaries.isEmpty {
-                        Text("No folders yet. Add the ones DigUp should search.")
+                        Text("尚未选择文件夹。添加你希望 DigUp-ZH 搜索的位置。")
                             .foregroundStyle(.secondary)
                     }
                     ForEach(summaries) { summary in
@@ -266,11 +256,11 @@ private struct FolderSettings: View {
                     ProgressView().controlSize(.small).frame(maxWidth: .infinity)
                 }
             } header: {
-                Text("Folders to search")
+                Text("搜索这些文件夹")
             } footer: {
                 HStack {
                     Button(action: state.addFolders) {
-                        Label("Add Folders…", systemImage: "plus")
+                        Label("添加文件夹…", systemImage: "plus")
                     }
                     Spacer()
                 }
@@ -289,25 +279,25 @@ private struct FolderSettings: View {
                             Image(systemName: "minus.circle.fill").foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
-                        .help("Search this folder again")
+                        .help("重新搜索此文件夹")
                     }
                 }
                 if state.model.settings.excludedFolders.isEmpty {
-                    Text("None. Code projects, app bundles and caches are skipped anyway (code has its own tab).")
+                    Text("暂无。代码项目、应用和缓存会自动跳过，代码请在“代码”页单独设置。")
                         .foregroundStyle(.secondary)
                 }
             } header: {
-                Text("Skip these folders")
+                Text("跳过这些文件夹")
             } footer: {
                 HStack {
                     Button {
-                        state.app.pickFolders(for: NSApp.keyWindow, prompt: "Skip") { folders in
+                        state.app.pickFolders(for: NSApp.keyWindow, prompt: "跳过") { folders in
                             guard !folders.isEmpty else { return }
                             state.app.setExcluded(state.model.settings.excludedFolders
                                 + folders.filter { !state.model.settings.excludedFolders.contains($0) })
                         }
                     } label: {
-                        Label("Skip a Folder…", systemImage: "plus")
+                        Label("跳过文件夹…", systemImage: "plus")
                     }
                     Spacer()
                 }
@@ -315,11 +305,11 @@ private struct FolderSettings: View {
             Section {
                 TypeExclusions(types: state.model.settings.excludedTypes) { state.app.setExcludedTypes($0) }
             } header: {
-                Text("Skip these file types")
+                Text("跳过这些文件类型")
             } footer: {
-                Text("DigUp only reads pictures, PDFs, documents (txt, md, rtf, docx, odt, html), audio and video here; "
-                     + "code is read only in the code folders (the Code tab). Keys, certificates and password files are "
-                     + "never read, nor are hidden folders like ~/.ssh.")
+                Text("这里读取图片、PDF、文档（txt、md、rtf、docx、odt、html）和视频画面，不理解音频或视频对白。"
+                     + "代码仅从“代码”页选定的文件夹中读取。密钥、证书、密码文件"
+                     + "及 ~/.ssh 等隐藏文件夹会跳过。")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -341,19 +331,19 @@ private struct FolderSettings: View {
         .onChange(of: state.model.status) { state.statusChanged() }
         .confirmationDialog(removalTitle, isPresented: Binding(get: { removing != nil },
                                                                set: { if !$0 { removing = nil } })) {
-            Button("Remove", role: .destructive) {
+            Button("移除", role: .destructive) {
                 guard let removing else { return }
                 state.app.removeFolder(URL(fileURLWithPath: removing.path))
                 Task { await state.refresh() }
             }
         } message: {
-            Text("Its \(removing?.files.formatted() ?? "") files leave the index. Adding it back later indexes them "
-                 + "again.")
+            Text("此文件夹的 \(removing?.files.formatted() ?? "") 个文件将从索引中移除，原文件不受影响。以后添加回来时会"
+                 + "重新建立索引。")
         }
     }
 
     private var removalTitle: String {
-        "Stop searching “\(removing.map { ($0.path as NSString).lastPathComponent } ?? "")”?"
+        "停止搜索“\(removing.map { ($0.path as NSString).lastPathComponent } ?? "")”？"
     }
 }
 
@@ -365,7 +355,7 @@ private struct TypeExclusions: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        TextField("Extensions", text: $text, prompt: Text("e.g. heic, txt"))
+        TextField("扩展名", text: $text, prompt: Text("例如 heic, txt"))
             .labelsHidden()
             .focused($focused)
             .onSubmit { apply(text) }
@@ -393,7 +383,7 @@ private struct IndexProgress: View {
             }
             Spacer()
             if model.hasFolders {
-                Button(model.status.paused ? "Resume" : "Pause", action: togglePause)
+                Button(model.status.paused ? "继续" : "暂停", action: togglePause)
             }
         }
     }
@@ -401,12 +391,12 @@ private struct IndexProgress: View {
     /// "357 of 365 files searchable · 8 waiting · 2 long files to finish"
     private var detail: String {
         let status = model.status
-        var text = "\(status.searchable.formatted()) of \(status.files.formatted()) files searchable"
-        if status.pending > 0 { text += " · \(status.pending.formatted()) waiting" }
+        var text = "\(status.files.formatted()) 个文件中已有 \(status.searchable.formatted()) 个可搜索"
+        if status.pending > 0 { text += " · \(status.pending.formatted()) 个待处理" }
         if status.unfinished > 0 {
-            text += " · \(status.unfinished.formatted()) long \(status.unfinished == 1 ? "file" : "files") to finish"
+            text += " · \(status.unfinished.formatted()) 个长文档尚未读完"
         }
-        if model.download.isActive { text += " · model \(model.download.progressText)" }
+        if model.download.isActive { text += " · 模型 \(model.download.progressText)" }
         return text
     }
 }
@@ -425,14 +415,14 @@ private struct FolderStatusRow: View {
                 HStack(spacing: 6) {
                     Text((summary.path as NSString).lastPathComponent).font(.system(size: 13, weight: .semibold))
                     if summary.missing || summary.unreadable {
-                        Text(summary.missing ? "Not connected" : "No access")
+                        Text(summary.missing ? "未连接" : "无访问权限")
                             .font(.system(size: 10, weight: .semibold))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 1)
                             .background(Capsule().fill(Color.orange.opacity(0.2)))
                     }
                     if summary.unreadable {
-                        Button("Allow in Settings…", action: openFolderPrivacySettings)
+                        Button("前往系统设置授权…", action: openFolderPrivacySettings)
                             .buttonStyle(.link)
                             .font(.system(size: 11))
                     }
@@ -448,8 +438,8 @@ private struct FolderStatusRow: View {
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
-                Text(summary.missing || summary.unreadable ? "Kept for when it's back"
-                     : "\(summary.indexed.formatted()) of \(summary.files.formatted()) indexed")
+                Text(summary.missing || summary.unreadable ? "保留索引，等待恢复访问"
+                     : "已处理 \(summary.indexed.formatted()) / \(summary.files.formatted()) 个")
                     .font(.system(size: 12, weight: .medium).monospacedDigit())
                 if !states.isEmpty {
                     Text(states).font(.system(size: 11)).foregroundStyle(.secondary)
@@ -459,18 +449,18 @@ private struct FolderStatusRow: View {
                 Image(systemName: "minus.circle.fill").foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .help("Stop searching this folder")
-            .accessibilityLabel("Remove \((summary.path as NSString).lastPathComponent)")
+            .help("停止搜索此文件夹")
+            .accessibilityLabel("移除 \((summary.path as NSString).lastPathComponent)")
         }
         .padding(.vertical, 2)
     }
 
     private var states: String {
-        [summary.pending > 0 ? "\(summary.pending.formatted()) waiting" : nil,
+        [summary.pending > 0 ? "\(summary.pending.formatted()) 个待处理" : nil,
          summary.unfinished > 0
-            ? "\(summary.unfinished.formatted()) long \(summary.unfinished == 1 ? "file" : "files") to finish" : nil,
-         summary.skipped > 0 ? "\(summary.skipped.formatted()) skipped" : nil,
-         summary.failed > 0 ? "\(summary.failed.formatted()) couldn't be read" : nil].compactMap { $0 }
+            ? "\(summary.unfinished.formatted()) 个长文档尚未读完" : nil,
+         summary.skipped > 0 ? "\(summary.skipped.formatted()) 个已跳过" : nil,
+         summary.failed > 0 ? "\(summary.failed.formatted()) 个读取失败" : nil].compactMap { $0 }
             .joined(separator: " · ")
     }
 }
@@ -480,44 +470,44 @@ private struct StorageSettings: View {
 
     var body: some View {
         Form {
-            Section("Model") {
-                LabeledContent("EmbeddingGemma 2") {
-                    Text("Google · Apache 2.0 · 865 MB")
+            Section("模型") {
+                LabeledContent("Qwen3-VL-Embedding-2B") {
+                    Text("Qwen · Apache 2.0 · 约 1.93 GB")
                 }
-                LabeledContent("Status") {
+                LabeledContent("状态") {
                     HStack(spacing: 8) {
-                        Text(state.model.download.isReady ? "Downloaded" : state.model.download.progressText)
+                        Text(state.model.download.isReady ? "已就绪" : state.model.download.progressText)
                         switch state.model.download.phase {
                         case .needed, .failed:
-                            Button("Download") { state.model.download.start() }.controlSize(.small)
+                            Button("下载") { state.model.download.start() }.controlSize(.small)
                         default:
                             EmptyView()
                         }
                     }
                 }
-                LabeledContent("Location") {
+                LabeledContent("位置") {
                     PathButton(url: state.model.settings.modelsDirectory)
                 }
             }
-            Section("Index") {
-                LabeledContent("Size on disk", value: bytes(state.indexSize))
+            Section("搜索索引") {
+                LabeledContent("占用空间", value: bytes(state.indexSize))
                 if state.model.hasCode {
-                    LabeledContent("Code index", value: bytes(state.codeIndexSize))
+                    LabeledContent("代码索引", value: bytes(state.codeIndexSize))
                 }
-                LabeledContent("Location") {
+                LabeledContent("位置") {
                     PathButton(url: state.model.settings.indexDirectory)
                 }
             }
-            Section("Privacy") {
-                Text("DigUp reads the folders you choose and keeps what it learns in its index, on this Mac. "
-                     + "It goes online only to download its model, once, and to check for updates (General), "
-                     + "which sends nothing about your files.")
+            Section("隐私") {
+                Text("DigUp-ZH 读取你选择的文件夹，将搜索索引保存在本机。"
+                     + "完整安装包已内置模型，搜索可离线使用；仅缺失模型时需要联网下载。"
+                     + "文件内容和搜索内容均不会上传。")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Section {
-                Text("DigUp \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") · "
-                     + "EmbeddingGemma 2 by Google (Apache 2.0), run by llama.cpp (MIT).")
+                Text("DigUp-ZH \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") · "
+                     + "致谢 DigUp、Qwen（Apache 2.0）及 llama.cpp（MIT）。")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -537,10 +527,10 @@ private struct CodeSettings: View {
         Form {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Search your code").font(.system(size: 13, weight: .semibold))
-                    Text("Find code by what it does, or by a name in it: type code: in the search panel, as in "
-                         + "“code: retry with backoff”. Code has an index of its own, and it never shows up in "
-                         + "other searches.")
+                    Text("搜索代码").font(.system(size: 13, weight: .semibold))
+                    Text("描述代码的用途，或输入函数、变量等名称。在搜索框输入 code:，例如"
+                         + "“code: 请求失败后逐步延时重试”。代码单独建立索引，"
+                         + "仅在代码搜索中显示。")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -562,44 +552,44 @@ private struct CodeSettings: View {
             }
             Section {
                 if state.codeSummaries.isEmpty {
-                    Text("No code folders yet. Add the folders that hold your projects.")
+                    Text("尚未选择代码文件夹。请添加存放项目的文件夹。")
                         .foregroundStyle(.secondary)
                 }
                 ForEach(state.codeSummaries) { summary in
                     FolderStatusRow(summary: summary) { removing = summary }
                 }
             } header: {
-                Text("Code folders")
+                Text("代码文件夹")
             } footer: {
                 HStack {
                     Button(action: state.addCodeFolders) {
-                        Label(state.model.hasCode ? "Add Folders…" : "Choose Code Folders…", systemImage: "plus")
+                        Label(state.model.hasCode ? "添加文件夹…" : "选择代码文件夹…", systemImage: "plus")
                     }
                     Spacer()
                 }
             }
             Section {
-                Picker("Open code in", selection: Binding(get: { CodeEditor.current.id },
+                Picker("代码打开方式", selection: Binding(get: { CodeEditor.current.id },
                                                           set: { state.app.setCodeEditor($0) })) {
                     ForEach(CodeEditor.installed) { editor in Text(editor.name).tag(editor.id) }
                     Text(CodeEditor.defaultApp.name).tag(CodeEditor.defaultApp.id)
                 }
             } footer: {
-                Text("A result opens there at the line that matched. Space shows the whole file in Quick Look.")
+                Text("打开结果时跳转到匹配行。选中结果后按空格可快速预览整个文件。")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
             Section {
-                Text("The code index keeps your code's text on this Mac, as the main index keeps your documents'. "
-                     + "It skips what git ignores, vendored and generated code, data files, and anything that looks "
-                     + "like a key or a password.")
+                Text("代码索引和文档索引一样，仅保存在本机。"
+                     + "会跳过 Git 忽略的文件、第三方依赖、自动生成的代码、数据文件及疑似"
+                     + "密钥或密码的内容。")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if state.model.hasCode {
                     HStack {
                         Spacer()
-                        Button("Turn Off Code Search…", role: .destructive) { turningOff = true }
+                        Button("关闭代码搜索…", role: .destructive) { turningOff = true }
                     }
                 }
             }
@@ -607,23 +597,23 @@ private struct CodeSettings: View {
         .formStyle(.grouped)
         .scrollDisabled(true)
         .onChange(of: state.model.status) { state.statusChanged() }
-        .confirmationDialog("Turn off code search?", isPresented: $turningOff) {
-            Button("Turn Off", role: .destructive) {
+        .confirmationDialog("关闭代码搜索？", isPresented: $turningOff) {
+            Button("关闭", role: .destructive) {
                 state.app.applyCodeFolders([], excluded: [])
                 Task { await state.refresh() }
             }
         } message: {
-            Text("The code index (\(bytes(state.codeIndexSize))) is deleted. Turning it on again reads the code again.")
+            Text("将删除代码索引（\(bytes(state.codeIndexSize))），原代码文件不受影响。重新开启时会再次读取代码。")
         }
-        .confirmationDialog("Stop searching the code in “\(removing.map { ($0.path as NSString).lastPathComponent } ?? "")”?",
+        .confirmationDialog("停止搜索“\(removing.map { ($0.path as NSString).lastPathComponent } ?? "")”中的代码？",
                             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
-            Button("Remove", role: .destructive) {
+            Button("移除", role: .destructive) {
                 guard let removing else { return }
                 state.app.removeCodeFolder(URL(fileURLWithPath: removing.path))
                 Task { await state.refresh() }
             }
         } message: {
-            Text("Its \(removing?.files.formatted() ?? "") code files leave the code index.")
+            Text("此文件夹的 \(removing?.files.formatted() ?? "") 个代码文件将从索引中移除，原文件不受影响。")
         }
     }
 }
@@ -642,6 +632,6 @@ private struct PathButton: View {
             }
         }
         .buttonStyle(.plain)
-        .help("Show in Finder")
+        .help("在访达中显示")
     }
 }

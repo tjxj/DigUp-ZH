@@ -2,16 +2,14 @@ import AppKit
 import DigUpKit
 import SwiftUI
 
-/// The app's own colors, from its icon (moss tiles around an amber D, `Resources/AppIcon`): amber marks what DigUp
-/// finds (accent icons), moss is for brand moments (onboarding's glow and tiles); selection and controls follow the
-/// system accent color like any Mac app.
+/// The icon's ink teal, rice-paper cream and vermilion seal. Selection and controls follow the system accent color.
 enum Brand {
-    static let amber = Color(red: 0.949, green: 0.635, blue: 0.165)    // #F2A22A, the D
-    static let ember = Color(red: 0.851, green: 0.482, blue: 0.102)    // #D97B1A, a deeper amber that holds up on white
-    static let moss = Color(red: 0.208, green: 0.400, blue: 0.322)     // #356652, the darkest tile
-    static let leaf = Color(red: 0.310, green: 0.502, blue: 0.345)     // #4F8058
-    static let sprout = Color(red: 0.635, green: 0.780, blue: 0.557)   // #A2C78E, a light tile
-    /// Accent icons: the D's amber.
+    static let amber = Color(red: 0.851, green: 0.408, blue: 0.310)   // #D9684F
+    static let ember = Color(red: 0.714, green: 0.294, blue: 0.224)   // #B64B39
+    static let moss = Color(red: 0.063, green: 0.247, blue: 0.263)    // #103F43
+    static let leaf = Color(red: 0.125, green: 0.353, blue: 0.376)    // #205A60
+    static let sprout = Color(red: 0.961, green: 0.922, blue: 0.839)  // #F5EBD6
+    /// Accent icons borrow the vermilion seal.
     static let gradient = LinearGradient(colors: [amber, ember], startPoint: .top, endPoint: .bottom)
     /// Tiles with a white symbol on them, like the icon's.
     static let tile = LinearGradient(colors: [leaf, moss], startPoint: .top, endPoint: .bottom)
@@ -87,7 +85,7 @@ struct MomentBar: View {
             }
         }
         .frame(height: 4)
-        .accessibilityLabel("At \(ResultRow.clock(start)) of \(ResultRow.clock(duration))")
+        .accessibilityLabel("位于 \(ResultRow.clock(start))，总长 \(ResultRow.clock(duration))")
     }
 }
 
@@ -131,15 +129,14 @@ private struct CompactLabel: LabelStyle {
 extension FileKind {
     /// "1 screenshot", "25 PDFs", "6 audio files"
     func counted(_ count: Int) -> String {
-        let one = count == 1
         let noun = switch self {
-        case .screenshot: one ? "screenshot" : "screenshots"
-        case .image: one ? "image" : "images"
-        case .pdf: one ? "PDF" : "PDFs"
-        case .doc: one ? "document" : "documents"
-        case .audio: one ? "audio file" : "audio files"
-        case .video: one ? "video" : "videos"
-        case .code: one ? "code file" : "code files"
+        case .screenshot: "张截图"
+        case .image: "张图片"
+        case .pdf: "个 PDF"
+        case .doc: "个文档"
+        case .audio: "个音频文件"
+        case .video: "个视频"
+        case .code: "个代码文件"
         }
         return "\(count.formatted()) \(noun)"
     }
@@ -194,11 +191,11 @@ struct ShortcutRecorder: View {
             Button { setRecording(!recording) } label: {
                 Group {
                     if recording {
-                        Text("Press the new shortcut…").foregroundStyle(.secondary)
+                        Text("请按下新的快捷键…").foregroundStyle(.secondary)
                     } else if let combo {
                         Keycaps(caps: combo.caps, size: capSize)
                     } else {
-                        Text("Click to set a shortcut").foregroundStyle(.secondary)
+                        Text("点击设置快捷键").foregroundStyle(.secondary)
                     }
                 }
                 .font(.system(size: 13))
@@ -213,8 +210,8 @@ struct ShortcutRecorder: View {
             }
             .buttonStyle(.plain)
             .background(KeyCatcher(active: recording, onKey: handle, onResign: { setRecording(false) }))
-            .accessibilityLabel(recording ? "Recording a new shortcut" : "Shortcut \(combo?.display ?? "none"), click to change")
-            Text(problem ?? (recording ? "Esc cancels" : "Click to change"))
+            .accessibilityLabel(recording ? "正在录入新的快捷键" : "快捷键 \(combo?.display ?? "未设置")，点击修改")
+            Text(problem ?? (recording ? "按 Esc 取消" : "点击修改"))
                 .font(.system(size: 11))
                 .foregroundStyle(problem == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.red))
                 .multilineTextAlignment(.center)
@@ -234,7 +231,7 @@ struct ShortcutRecorder: View {
                                                                                                .numericPad])
         if event.keyCode == 53, flags.isEmpty { return setRecording(false) }   // Esc
         guard let combo = KeyCombo(keyCode: event.keyCode, flags: flags) else {
-            problem = "Use ⌘, ⌥ or ⌃ with a key"
+            problem = "请组合使用 ⌘、⌥ 或 ⌃ 和另一个按键"
             return
         }
         if let why = apply(combo) {

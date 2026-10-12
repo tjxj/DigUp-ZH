@@ -81,6 +81,10 @@ enum OCR {
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
         request.automaticallyDetectsLanguage = true
+        // Explicitly prefer both Chinese writing systems in mixed Chinese/English screenshots. Filter against the
+        // running OS's supported list so an unavailable language never makes the whole recognition request fail.
+        let supported = (try? request.supportedRecognitionLanguages()) ?? []
+        request.recognitionLanguages = ["zh-Hans", "zh-Hant", "en-US"].filter { supported.contains($0) }
         try? VNImageRequestHandler(cgImage: image).perform([request])
         return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
     }
@@ -220,6 +224,8 @@ enum DocExtractor {
 
     /// Splits text into ~`size`-character pieces (~450 tokens) that overlap a little, breaking at whitespace.
     static func chunks(_ text: String, size: Int = 1800, overlap: Int = 200, limit: Int) -> [String] {
+        guard size > 0, limit > 0 else { return [] }
+        let overlap = max(0, min(overlap, size - 1))
         let clean = text
             .replacingOccurrences(of: #"[ \t\u{00A0}]+"#, with: " ", options: .regularExpression)
             .replacingOccurrences(of: #"\n\s*\n\s*\n+"#, with: "\n\n", options: .regularExpression)
@@ -228,9 +234,10 @@ enum DocExtractor {
         var start = clean.startIndex
         while start < clean.endIndex, chunks.count < limit {
             var end = clean.index(start, offsetBy: size, limitedBy: clean.endIndex) ?? clean.endIndex
-            if end < clean.endIndex, let space = clean[start..<end].lastIndex(where: \.isWhitespace),
-               clean.distance(from: start, to: space) > size / 2 {
-                end = space
+            if end < clean.endIndex,
+               let boundary = clean[start..<end].lastIndex(where: { $0.isWhitespace || "。！？；".contains($0) }),
+               clean.distance(from: start, to: boundary) > size / 2 {
+                end = clean[boundary].isWhitespace ? boundary : clean.index(after: boundary)
             }
             let chunk = clean[start..<end].trimmingCharacters(in: .whitespacesAndNewlines)
             if !chunk.isEmpty { chunks.append(chunk) }
@@ -238,7 +245,9 @@ enum DocExtractor {
             var next = clean.index(end, offsetBy: -overlap, limitedBy: start) ?? end
             if next <= start { next = end }
             // Start the next chunk on a word boundary.
-            while next < end, !clean[next].isWhitespace { next = clean.index(after: next) }
+            while next < end, !clean[next].isWhitespace, !SearchText.isHan(clean[next]) {
+                next = clean.index(after: next)
+            }
             start = next < end ? next : end
         }
         return chunks

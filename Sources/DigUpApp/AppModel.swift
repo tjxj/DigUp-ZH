@@ -23,35 +23,35 @@ final class AppModel {
     /// One line for the menu and the windows: what the index is doing.
     var statusLine: String {
         let status = self.status
-        guard hasFolders else { return "No folders chosen yet" }
+        guard hasFolders else { return "尚未选择文件夹" }
         switch status.activity {
-        case .starting: return "Starting…"
+        case .starting: return "正在启动…"
         case .failed(let problem): return "⚠︎ \(problem)"
-        case .syncing: return "Checking folders…"
+        case .syncing: return "正在检查文件夹…"
         case .indexing(let done, let total):
             let percent = total > 0 ? Int((Double(done) / Double(total) * 100).rounded(.down)) : 0
-            return "Indexing \(percent)% · \(done.formatted()) of \(total.formatted())"
+            return "正在建立索引 \(percent)% · \(done.formatted()) / \(total.formatted())"
         case .finishing(let done, let total, let files):
             let percent = total > 0 ? Int((Double(done) / Double(total) * 100).rounded(.down)) : 0
-            let which = files > 0 ? "\(files.formatted()) long \(files == 1 ? "file" : "files")" : "long files"
-            return "Reading the rest of \(which) · \(percent)%"
+            let which = files > 0 ? "\(files.formatted()) 个长文档" : "长文档"
+            return "继续读取\(which) · \(percent)%"
         case .idle:
             if let line = downloadLine { return line }
             if let code = status.code.indexing, code.total > 0 {
                 let percent = Int((Double(code.done) / Double(code.total) * 100).rounded(.down))
-                return "Indexing code \(percent)% · \(code.done.formatted()) of \(code.total.formatted())"
+                return "正在处理代码 \(percent)% · \(code.done.formatted()) / \(code.total.formatted())"
             }
-            let waiting = "\(status.pending.formatted()) \(status.pending == 1 ? "file" : "files") waiting"
-            if status.pending > 0, status.paused { return "Paused · \(waiting)" }
+            let waiting = "\(status.pending.formatted()) 个文件待处理"
+            if status.pending > 0, status.paused { return "已暂停 · \(waiting)" }
             if status.pending > 0, let reason = status.waitingFor { return "\(waiting) · \(reason)" }
-            if status.pending > 0 { return "\(waiting) to be indexed" }
+            if status.pending > 0 { return "\(waiting)" }
             if status.unfinished > 0 {
-                let rest = "\(status.unfinished.formatted()) long \(status.unfinished == 1 ? "file" : "files") to finish"
-                if status.paused { return "Paused · \(rest)" }
+                let rest = "\(status.unfinished.formatted()) 个长文档尚未读完"
+                if status.paused { return "已暂停 · \(rest)" }
                 if let reason = status.waitingFor { return "\(rest) · \(reason)" }
             }
-            return "\(status.searchable.formatted()) \(status.searchable == 1 ? "file" : "files") indexed"
-                + (status.paused ? " · paused" : "")
+            return "\(status.searchable.formatted()) 个文件已可搜索"
+                + (status.paused ? " · 已暂停" : "")
         }
     }
 
@@ -59,11 +59,11 @@ final class AppModel {
     private var downloadLine: String? {
         switch download.phase {
         case .ready: nil
-        case .downloading: "Downloading the model · \(Int(download.fraction * 100))%"
-        case .verifying: "Checking the model download…"
-        case .retrying: "Model download: waiting for the network"
-        case .failed: "⚠︎ The model download stopped"
-        case .needed: status.pending > 0 ? "The model isn't downloaded yet" : nil
+        case .downloading: "正在下载模型 · \(Int(download.fraction * 100))%"
+        case .verifying: "正在校验模型…"
+        case .retrying: "下载模型：等待网络恢复"
+        case .failed: "⚠︎ 模型下载已停止"
+        case .needed: status.pending > 0 ? "模型尚未下载" : nil
         }
     }
 
@@ -83,25 +83,25 @@ final class AppModel {
     /// One line about the code index, for Settings → Code: "812 code files indexed", "Indexing code 42%…".
     var codeStatusLine: String {
         let code = status.code
-        guard hasCode else { return "Code search is off" }
-        if !download.isReady { return "Code is read once the model has downloaded" }
+        guard hasCode else { return "代码搜索尚未开启" }
+        if !download.isReady { return "模型下载完成后开始读取代码" }
         if let indexing = code.indexing, indexing.total > 0 {
             let percent = Int((Double(indexing.done) / Double(indexing.total) * 100).rounded(.down))
-            return "Indexing code \(percent)% · \(indexing.done.formatted()) of \(indexing.total.formatted())"
+            return "正在处理代码 \(percent)% · \(indexing.done.formatted()) / \(indexing.total.formatted())"
         }
-        let waiting = code.pending > 0 ? " · \(code.pending.formatted()) waiting" : ""
-        if code.pending > 0, status.paused { return "Paused · \(code.pending.formatted()) code files waiting" }
-        if code.pending > 0, let reason = status.waitingFor { return "\(code.pending.formatted()) code files waiting · \(reason)" }
-        return "\(code.searchable.formatted()) code \(code.searchable == 1 ? "file" : "files") indexed" + waiting
+        let waiting = code.pending > 0 ? " · \(code.pending.formatted()) 个待处理" : ""
+        if code.pending > 0, status.paused { return "已暂停 · \(code.pending.formatted()) 个代码文件待处理" }
+        if code.pending > 0, let reason = status.waitingFor { return "\(code.pending.formatted()) 个代码文件待处理 · \(reason)" }
+        return "\(code.searchable.formatted()) 个代码文件已可搜索" + waiting
     }
 
     /// A few words for the search bar while results may be incomplete: "Indexing 42%", "Downloading model · 42%".
     var activityBadge: String? {
-        if download.isActive { return "Downloading model · \(Int(download.fraction * 100))%" }
+        if download.isActive { return "正在下载模型 · \(Int(download.fraction * 100))%" }
         if case .indexing(let done, let total) = status.activity, total > 0 {
-            return "Indexing \(Int(Double(done) / Double(total) * 100))%"
+            return "正在建立索引 \(Int(Double(done) / Double(total) * 100))%"
         }
-        if status.paused, status.pending > 0 { return "Indexing paused" }
+        if status.paused, status.pending > 0 { return "已暂停建立索引" }
         return nil
     }
 
@@ -109,19 +109,19 @@ final class AppModel {
     var meaningUnavailable: String? {
         guard !download.isReady else { return nil }
         if download.isActive {
-            return "Matching words only until the model has downloaded (\(Int(download.fraction * 100))%)"
+            return "模型下载中（\(Int(download.fraction * 100))%），目前仅匹配文字"
         }
-        return "Matching words only: the model isn't downloaded"
+        return "模型尚未下载，目前仅匹配文字"
     }
 
     /// Why results may be incomplete right now, or nil.
     var resultsCaveat: String? {
         if let meaningUnavailable { return meaningUnavailable }
         if case .indexing(let done, let total) = status.activity, total > 0 {
-            return "Still indexing (\(Int(Double(done) / Double(total) * 100))%): some files aren't in yet"
+            return "正在建立索引（\(Int(Double(done) / Double(total) * 100))%），部分文件尚不可搜索"
         }
         if status.pending > 0 {
-            return "\(status.pending.formatted()) \(status.pending == 1 ? "file isn't" : "files aren't") indexed yet"
+            return "还有 \(status.pending.formatted()) 个文件尚未处理"
         }
         return nil
     }

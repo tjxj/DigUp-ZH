@@ -2,7 +2,7 @@ import AppKit
 import DigUpKit
 
 /// The editors code search opens results in, at the line that matched: each one's own way of being told the line (a
-/// URL, or a command its app bundles), found by bundle id. The one in use is a setting ("Open code in"); until it's set,
+/// URL, or a command its app bundles), found by bundle id. The one in use is a setting ("代码打开方式"); until it's set,
 /// the first one installed, preferring one that's running now.
 nonisolated struct CodeEditor: Identifiable, Hashable, Sendable {
     enum Method: Hashable, Sendable {
@@ -52,7 +52,7 @@ nonisolated struct CodeEditor: Identifiable, Hashable, Sendable {
     ]
 
     /// Each file opens in the app macOS opens it with, at its start.
-    static let defaultApp = CodeEditor(id: "", name: "The file's default app", method: .plain)
+    static let defaultApp = CodeEditor(id: "", name: "文件的默认应用", method: .plain)
 
     /// Where code results open now (`AppController.setCodeEditor`).
     @MainActor static var current = defaultApp

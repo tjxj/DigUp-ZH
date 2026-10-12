@@ -82,8 +82,8 @@ final class FolderChoices {
                 expanded.insert(row.path)
             } else if selection.isSearched(path) {
                 let by = selection.searchedAs(path)
-                note = "“\(folder.lastPathComponent)” is searched already"
-                    + (by == nil || by == path ? "." : ", as part of “\((by! as NSString).lastPathComponent)”.")
+                note = "“\(folder.lastPathComponent)”已在搜索范围内"
+                    + (by == nil || by == path ? "." : "，已包含在“\((by! as NSString).lastPathComponent)”中。")
             } else {
                 rows.append(folder)
                 selection.setFolder(path, on: true)
@@ -109,7 +109,7 @@ final class FolderChoices {
                 selection.setSubfolder(path, on: false)
                 deeper.append(path)
             } else {
-                note = "“\(folder.lastPathComponent)” isn't searched anyway."
+                note = "“\(folder.lastPathComponent)”不在搜索范围内。"
             }
         }
         estimate(rows.filter { row in deeper.contains { FolderSelection.isInside($0, row.path) } })
@@ -257,10 +257,10 @@ private struct FolderRow: View {
     let row: URL
     @State private var showAll = false
 
-    static let laterHelp = "The first pass takes this long. Long PDFs and documents get their first pages in it, "
-        + "and the rest afterwards, once everything else is in."
-    static let codeHelp = "How long reading this code takes, once, and about how much room its index needs. After "
-        + "that, only what changes is read again."
+    static let laterHelp = "这是首次读取的粗略估计，实际以处理进度为准。较长的 PDF 和文档会先处理开头的内容，"
+        + "其他文件处理完成后再继续读取剩余部分。"
+    static let codeHelp = "首次读取代码的耗时与索引空间均为粗略估计，实际以处理进度为准。"
+        + "以后只会重新处理发生变化的文件。"
 
     /// Subfolders shown before "Show N more".
     private static let shortList = 8
@@ -279,7 +279,7 @@ private struct FolderRow: View {
                         SubfolderRow(choices: choices, subfolder: subfolder)
                     }
                     if !showAll, subfolders.count > Self.shortList {
-                        Button("Show \(subfolders.count - Self.shortList) more") { showAll = true }
+                        Button("再显示 \(subfolders.count - Self.shortList) 个") { showAll = true }
                             .buttonStyle(.link)
                             .font(.system(size: 11))
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -316,9 +316,9 @@ private struct FolderRow: View {
             .buttonStyle(.plain)
             .opacity(canOpen ? 1 : 0)
             .disabled(!canOpen)
-            .help(open ? "Hide its subfolders" : "Choose among its subfolders")
-            .accessibilityLabel(open ? "Hide the subfolders of \(row.lastPathComponent)"
-                                : "Show the subfolders of \(row.lastPathComponent)")
+            .help(open ? "收起子文件夹" : "选择其中的子文件夹")
+            .accessibilityLabel(open ? "收起 \(row.lastPathComponent) 的子文件夹"
+                                : "显示 \(row.lastPathComponent) 的子文件夹")
             Checkbox(mark: mark, label: row.lastPathComponent) { choices.toggle(row) }
             Image(nsImage: NSWorkspace.shared.icon(forFile: row.path))
                 .resizable()
@@ -326,15 +326,15 @@ private struct FolderRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(row.lastPathComponent).font(.system(size: 13, weight: .semibold))
                 if let estimate, estimate.failed {
-                    Text("Couldn't look inside it; it can still be searched.")
+                    Text("暂时无法预估，但仍可添加此文件夹。")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 } else if let estimate, !estimate.readable {
                     HStack(spacing: 6) {
-                        Text("macOS isn't letting DigUp read it.")
+                        Text("macOS 尚未允许 DigUp-ZH 读取此文件夹。")
                             .font(.system(size: 11))
                             .foregroundStyle(.orange)
-                        Button("Allow in Settings…", action: openFolderPrivacySettings)
+                        Button("前往系统设置授权…", action: openFolderPrivacySettings)
                             .buttonStyle(.link)
                             .font(.system(size: 11))
                     }
@@ -342,8 +342,8 @@ private struct FolderRow: View {
                     KindCounts(counts: part.files)
                 } else {
                     Text(estimate == nil ? tildePath(row.path)
-                         : estimate!.files.isEmpty ? (choices.code ? "No code here" : "Nothing to search here yet")
-                         : "Nothing to search in the subfolders checked")
+                         : estimate!.files.isEmpty ? (choices.code ? "此处没有代码文件" : "此处暂时没有可搜索文件")
+                         : "选中的子文件夹中没有可搜索文件")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -361,7 +361,7 @@ private struct FolderRow: View {
                             .font(.system(size: 10).monospacedDigit())
                             .foregroundStyle(.tertiary)
                     } else if let later = part?.later, later >= 30 {
-                        Text("+ \(roughDuration(later)) later")
+                        Text("剩余部分粗略估计：\(roughDuration(later))")
                             .font(.system(size: 10).monospacedDigit())
                             .foregroundStyle(.tertiary)
                     }
@@ -403,7 +403,7 @@ private struct SubfolderRow: View {
             Spacer(minLength: 8)
             Text(approximately(subfolder.seconds)
                  + (choices.code ? " · \(roughBytes(subfolder.bytes))"
-                    : subfolder.laterSeconds >= 30 ? " + \(roughDuration(subfolder.laterSeconds)) later" : ""))
+                    : subfolder.laterSeconds >= 30 ? "，剩余部分粗略估计：\(roughDuration(subfolder.laterSeconds))" : ""))
                 .font(.system(size: 11, weight: .medium).monospacedDigit())
                 .foregroundStyle(on ? .secondary : .tertiary)
                 .help(choices.code ? FolderRow.codeHelp : FolderRow.laterHelp)

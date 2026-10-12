@@ -69,7 +69,7 @@ struct ResultRow: Identifiable, Equatable {
     var place: String? {
         guard let loc else { return nil }
         switch segment {
-        case .page, .pageImage: return "p. \(Int(loc))"
+        case .page, .pageImage: return "第 \(Int(loc)) 页"
         case .frame: return Self.clock(loc)
         case .audio: return kind == .video ? "♪ \(Self.clock(loc))" : Self.clock(loc)
         case .lines: return Int(loc) == Int(locEnd ?? loc) ? "L\(Int(loc))" : "L\(Int(loc))–\(Int(locEnd ?? loc))"
@@ -83,8 +83,8 @@ struct ResultRow: Identifiable, Equatable {
         guard let loc else { return nil }
         let (first, last) = (Int(loc), Int(locEnd ?? loc))
         switch segment {
-        case .lines: return first == last ? "line \(first)" : "lines \(first)–\(last)"
-        case .cells: return first == last ? "cell \(first)" : "cells \(first)–\(last)"
+        case .lines: return first == last ? "第 \(first) 行" : "第 \(first)–\(last) 行"
+        case .cells: return first == last ? "第 \(first) 个单元" : "第 \(first)–\(last) 个单元"
         default: return nil
         }
     }
@@ -94,21 +94,21 @@ struct ResultRow: Identifiable, Equatable {
 
     var duration: Double? { info["duration"].flatMap(Double.init) }
 
-    /// Why it's here, in a few words: "Matches the picture", "Matches the frame at 0:06".
+    /// Why it's here, in a few words: "图片内容匹配", "Matches the frame at 0:06".
     var reason: String {
-        guard matchedMeaning else { return matchedWords ? "Has your words" : "Matches its name" }
+        guard matchedMeaning else { return matchedWords ? "包含搜索文字" : "文件名匹配" }
         let place = loc.map(Self.clock) ?? ""
-        let page = loc.map { "page \(Int($0))" } ?? "a page"
+        let page = loc.map { "第 \(Int($0)) 页" } ?? "页面内容"
         switch segment {
-        case .image: return kind == .screenshot ? "Matches what's on screen" : "Matches the picture"
-        case .ocr: return "Matches the text in it"
-        case .frame: return "Matches the frame at \(place)"
-        case .audio: return kind == .video ? "Matches the sound at \(place)" : "Matches what's heard at \(place)"
-        case .page: return "Matches the text on \(page)"
-        case .pageImage: return "Matches \(page)"
-        case .chunk: return "Matches its text"
-        case .name: return "Matches its name"
-        case .lines, .cells: return "Matches \(span ?? "the code")"
+        case .image: return kind == .screenshot ? "截图画面匹配" : "图片内容匹配"
+        case .ocr: return "图片文字匹配"
+        case .frame: return "匹配 \(place) 的视频画面"
+        case .audio: return "音频片段 \(place)（当前模型不支持声音理解）"
+        case .page: return "匹配\(page)的文字"
+        case .pageImage: return "匹配\(page)"
+        case .chunk: return "文档内容匹配"
+        case .name: return "文件名匹配"
+        case .lines, .cells: return "匹配\(span ?? "代码内容")"
         }
     }
 
@@ -118,22 +118,22 @@ struct ResultRow: Identifiable, Equatable {
         if kind == .code {
             var parts = [CodeExtractor.language(of: url.path)]
             if let cells = info["cells"].flatMap(Int.init) {
-                parts.append(cells == 1 ? "1 cell" : "\(cells) cells")
+                parts.append(cells == 1 ? "1 个单元" : "\(cells) 个单元")
             } else if let lines = info["lines"].flatMap(Int.init) {
-                parts.append(lines == 1 ? "1 line" : "\(lines.formatted()) lines")
+                parts.append(lines == 1 ? "1 行" : "\(lines.formatted()) 行")
             }
-            parts.append(modified.formatted(date: .abbreviated, time: .omitted))
+            parts.append(modified.formatted(.dateTime.year().month().day().locale(Locale(identifier: "zh_CN"))))
             if size > 0 { parts.append(bytes(size)) }
             return parts.joined(separator: " · ")
         }
-        var parts = [kind.title, modified.formatted(date: .abbreviated, time: .omitted)]
+        var parts = [kind.title, modified.formatted(.dateTime.year().month().day().locale(Locale(identifier: "zh_CN")))]
         if let width = info["width"], let height = info["height"] { parts.append("\(width) × \(height)") }
         // A long file still being read (`Indexer.finishLongFiles`): what isn't read yet can't match.
         let readTo = info["read_to"].flatMap(Int.init)
         if let pages = info["pages"].flatMap(Int.init) {
-            parts.append((pages == 1 ? "1 page" : "\(pages) pages") + (readTo.map { ", \($0) read so far" } ?? ""))
+            parts.append((pages == 1 ? "1 页" : "\(pages) 页") + (readTo.map { "，已读取 \($0) 页" } ?? ""))
         } else if readTo != nil {
-            parts.append("partly read so far")
+            parts.append("已读取部分内容")
         }
         if let duration { parts.append(Self.clock(duration)) }
         if size > 0 { parts.append(bytes(size)) }
@@ -154,7 +154,7 @@ enum ResultGroupKind: CaseIterable {
     case code
 
     /// The kinds of files the main index holds: the window's kind filters, ⌘2 to ⌘6.
-    static let files: [ResultGroupKind] = [.screenshots, .images, .documents, .video, .audio]
+    static let files: [ResultGroupKind] = [.screenshots, .images, .documents, .video]
 
     init(_ kind: FileKind) {
         switch kind {
@@ -169,12 +169,12 @@ enum ResultGroupKind: CaseIterable {
 
     var title: String {
         switch self {
-        case .screenshots: "Screenshots"
-        case .images: "Images"
-        case .documents: "Documents"
-        case .video: "Video"
-        case .audio: "Audio"
-        case .code: "Code"
+        case .screenshots: "截图"
+        case .images: "图片"
+        case .documents: "文档"
+        case .video: "视频画面"
+        case .audio: "音频（仅文件名）"
+        case .code: "代码"
         }
     }
 
@@ -246,13 +246,13 @@ struct ResultSet: Equatable {
 extension FileKind {
     var title: String {
         switch self {
-        case .screenshot: "Screenshot"
-        case .image: "Image"
+        case .screenshot: "截图"
+        case .image: "图片"
         case .pdf: "PDF"
-        case .doc: "Document"
-        case .audio: "Audio"
-        case .video: "Video"
-        case .code: "Code"
+        case .doc: "文档"
+        case .audio: "音频（仅文件名）"
+        case .video: "视频画面"
+        case .code: "代码"
         }
     }
 

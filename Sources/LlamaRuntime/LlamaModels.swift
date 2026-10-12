@@ -1,13 +1,13 @@
 import DigUpKit
 import Foundation
 
-/// Where the EmbeddingGemma 2 files for llama.cpp are (see `ModelFiles` for which files, and why Q8_0).
+/// Locates the pinned Qwen Q4_K_M text model and matching f16 visual projector.
 public struct LlamaModels: Sendable {
     public static let repository = ModelFiles.repository
     public static let revision = ModelFiles.revision
-    /// The text part (310 MB): all that queries need.
+    /// The text model: sufficient for text queries.
     public static let textFile = ModelFiles.text.name
-    /// The image and audio encoders (555 MB).
+    /// The visual projector: required to index images and video frames.
     public static let mediaFile = ModelFiles.media.name
 
     public let text: URL
@@ -24,17 +24,19 @@ public struct LlamaModels: Sendable {
         return [ModelFiles.installed, ModelFiles.huggingFaceSnapshot]
     }
 
-    /// The first folder with the text part. Missing files are a `WorkerError`, so an indexing run stops and its files
-    /// stay pending.
-    public static func locate() throws -> LlamaModels {
-        for folder in folders {
+    /// The first folder with a complete text file. Partial files remain unavailable until their download finishes.
+    /// An explicit directory list also makes this check testable without changing the process environment.
+    public static func locate(in directories: [URL]? = nil) throws -> LlamaModels {
+        let searched = directories ?? folders
+        for folder in searched {
+            let missing = ModelFiles.missing(in: folder)
+            guard !missing.contains(ModelFiles.text) else { continue }
             let text = folder.appendingPathComponent(textFile)
-            guard FileManager.default.fileExists(atPath: text.path) else { continue }
             let media = folder.appendingPathComponent(mediaFile)
-            return LlamaModels(text: text, media: FileManager.default.fileExists(atPath: media.path) ? media : nil)
+            return LlamaModels(text: text, media: missing.contains(ModelFiles.media) ? nil : media)
         }
-        throw WorkerError.notFound("no \(textFile) in " + folders.map(\.path).joined(separator: ", ")
-            + "; get it with: hf download \(repository) \(textFile) \(mediaFile) --revision \(revision)")
+        throw WorkerError.notFound("未找到完整的 \(textFile)，已检查：" + searched.map(\.path).joined(separator: "、")
+            + "。请使用离线完整安装包，或下载配套模型：hf download \(repository) \(textFile) \(mediaFile) --revision \(revision)")
     }
 
     /// Both files are there, so indexing can run (checked without loading anything).

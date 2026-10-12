@@ -2,7 +2,7 @@ import DigUpKit
 import Foundation
 import Observation
 
-/// Gets the model onto this Mac: ggml-org's two Q8_0 files from Hugging Face (865 MB), the text part first.
+/// Gets the model onto this Mac: Qwen's Q4_K_M + f16 vision files from Hugging Face (1.93 GB), the text part first.
 ///
 /// - Resumable: a file downloads into `<name>.partial`, and an interrupted download carries on from where it stopped
 ///   (an HTTP range), after a relaunch too.
@@ -42,6 +42,8 @@ final class ModelDownload {
     @ObservationIgnored private var fileStarted = Date()
     @ObservationIgnored private var lastLogged = Date.distantPast
     @ObservationIgnored private var attempt = 0
+    /// Try each cached file only once per launch; a corrupt cache must fall back to the network.
+    @ObservationIgnored private var triedCachedFiles: Set<String> = []
 
     init(folder: URL) {
         self.folder = folder
@@ -62,18 +64,18 @@ final class ModelDownload {
         return Double(total - received) / bytesPerSecond
     }
 
-    /// "42% · about 1 min left", "Checking the download…", "Waiting for the network…"
+    /// "42% · about 1 min left", "正在校验模型…", "正在等待网络…"
     var progressText: String {
         switch phase {
-        case .needed: return "Not downloaded yet"
+        case .needed: return "尚未下载"
         case .downloading:
             let percent = "\(Int((fraction * 100).rounded(.down)))%"
             guard let left = secondsLeft else { return percent }
-            return percent + " · " + (left < 50 ? "less than a minute left" : "about \(roughDuration(left)) left")
-        case .verifying: return "Checking the download…"
-        case .retrying: return "Waiting for the network…"
+            return percent + " · " + (left < 50 ? "预计不到一分钟" : "预计还需 \(roughDuration(left))")
+        case .verifying: return "正在校验模型…"
+        case .retrying: return "正在等待网络…"
         case .failed(let message): return message
-        case .ready: return "Ready"
+        case .ready: return "已就绪"
         }
     }
 
@@ -104,17 +106,18 @@ final class ModelDownload {
             var folder = self.folder
             try folder.setResourceValues(values)
         } catch {
-            phase = .failed("Can't create \(tildePath(folder.path))")
+            phase = .failed("无法创建模型文件夹：\(tildePath(folder.path))")
             log("model: can't create \(folder.path): \(error)")
             return
         }
         let needed = ModelFiles.missing(in: folder).reduce(0) { $0 + $1.bytes } - partialBytes(of: file) + 200_000_000
         if let free = freeSpace(), free < needed {
-            phase = .failed("Needs \(bytes(needed)) free on this disk")
+            phase = .failed("磁盘还需 \(bytes(needed)) 可用空间")
             log("model: needs \(bytes(needed)) free, \(bytes(free)) is free")
             return
         }
-        if let cached = ModelFiles.cachedCopy(of: file) {
+        if !triedCachedFiles.contains(file.name), let cached = ModelFiles.cachedCopy(of: file) {
+            triedCachedFiles.insert(file.name)
             phase = .verifying
             let partial = folder.appendingPathComponent(file.name + ".partial")
             DispatchQueue.global(qos: .utility).async {
@@ -154,7 +157,7 @@ final class ModelDownload {
         }, waiting: { [weak self] in
             DispatchQueue.main.async { [weak self] in
                 guard let self, attempt == current else { return }
-                phase = .retrying("Waiting for a network connection")
+                phase = .retrying("正在等待网络连接")
                 log("model: waiting for a network connection")
             }
         }, done: { [weak self] outcome in
@@ -194,15 +197,32 @@ final class ModelDownload {
                 let size = FileFetcher.size(of: partial)
                 let hash = size == file.bytes ? try? ModelFiles.sha256(of: partial) : nil
                 let good = hash == file.sha256
+                var placementError: String?
                 if good {
                     let destination = folder.appendingPathComponent(file.name)
-                    try? FileManager.default.removeItem(at: destination)
-                    try? FileManager.default.moveItem(at: partial, to: destination)
+                    do {
+                        if FileManager.default.fileExists(atPath: destination.path) {
+                            let regular = try destination.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true
+                            guard regular else { throw CocoaError(.fileWriteFileExists) }
+                            _ = try FileManager.default.replaceItemAt(destination, withItemAt: partial)
+                        } else {
+                            try FileManager.default.moveItem(at: partial, to: destination)
+                        }
+                    } catch {
+                        placementError = "模型已下载，但无法保存到模型文件夹，请检查空间和写入权限：\(error.localizedDescription)"
+                    }
                 } else {
                     try? FileManager.default.removeItem(at: partial)
                 }
+                let saveError = placementError
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
+                    if let saveError {
+                        phase = .failed(saveError)
+                        received = bytesOnDisk()
+                        log("model: \(saveError)")
+                        return
+                    }
                     log("model: \(file.name) \(good ? "checked" : "FAILED its check (\(size) of \(file.bytes) bytes)") in "
                         + "\(ms(since: started)), downloaded in \(String(format: "%.1f s", seconds))")
                     if good {
@@ -211,7 +231,7 @@ final class ModelDownload {
                         failedChecks += 1
                         received = bytesOnDisk()
                         if failedChecks >= 2 {
-                            phase = .failed("The download was damaged twice. Try again later.")
+                            phase = .failed("模型下载连续两次校验失败，请稍后重试。")
                         } else {
                             next()
                         }
@@ -270,7 +290,7 @@ final class ModelDownload {
 
 /// "865 MB", "1.2 GB".
 nonisolated func bytes(_ count: Int64) -> String {
-    ByteCountFormatter.string(fromByteCount: count, countStyle: .file)
+    count < 1000 ? "\(max(0, count)) 字节" : ByteCountFormatter.string(fromByteCount: count, countStyle: .file)
 }
 
 /// Downloads one file into `<name>.partial`, carrying on from what's there (an HTTP range). Reports the bytes on disk
@@ -356,13 +376,13 @@ nonisolated final class FileFetcher: NSObject, URLSessionDataDelegate, @unchecke
             guard range.hasPrefix("bytes \(written)-") else {
                 // Not where we asked: start the file over next time.
                 try? FileManager.default.removeItem(at: partial)
-                problem = ("The download couldn't resume", true)
+                problem = ("下载续传失败，正在重新下载", true)
                 return completionHandler(.cancel)
             }
         case 200:
             written = 0   // the whole file, from the start
         default:
-            problem = ("Hugging Face answered \(status)", status == 429 || status >= 500)
+            problem = ("模型下载服务返回 \(status)，请稍后重试", status == 429 || status >= 500)
             return completionHandler(.cancel)
         }
         do {
@@ -375,7 +395,7 @@ nonisolated final class FileFetcher: NSObject, URLSessionDataDelegate, @unchecke
             self.handle = handle
             completionHandler(.allow)
         } catch {
-            problem = ("Can't save the model: \(error.localizedDescription)", false)
+            problem = ("无法保存模型：\(error.localizedDescription)", false)
             completionHandler(.cancel)
         }
     }
@@ -385,7 +405,7 @@ nonisolated final class FileFetcher: NSObject, URLSessionDataDelegate, @unchecke
             try handle?.write(contentsOf: data)
             written += Int64(data.count)
         } catch {
-            problem = ("Can't save the model: \(error.localizedDescription)", false)
+            problem = ("无法保存模型：\(error.localizedDescription)", false)
             dataTask.cancel()
             return
         }
@@ -409,7 +429,7 @@ nonisolated final class FileFetcher: NSObject, URLSessionDataDelegate, @unchecke
         } else if written == file.bytes {
             done(.downloaded(partial))
         } else {
-            done(.failed("The download stopped early", retry: true))
+            done(.failed("模型尚未下载完整，正在重试", retry: true))
         }
     }
 }

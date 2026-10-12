@@ -34,7 +34,7 @@ public enum Rules {
         "metal", "glsl", "hlsl", "wgsl", "cu", "pyi", "pyc",
     ]
 
-    static let screenshotPrefixes = ["Screenshot", "Screen Shot", "CleanShot", "SCR-"]
+    static let screenshotPrefixes = ["Screenshot", "Screen Shot", "CleanShot", "SCR-", "截图", "截屏", "螢幕快照", "螢幕截圖", "屏幕快照", "屏幕截图"]
 
     // MARK: Code (the code index, `IndexOptions.code`)
 
@@ -122,7 +122,7 @@ public enum Rules {
         if type.conforms(to: .pdf) { return .index(.pdf) }
         if type.conforms(to: .image) { return .index(isScreenshot(url) ? .screenshot : .image) }
         if type.conforms(to: .movie) { return .index(.video) }
-        if type.conforms(to: .audio) { return .index(.audio) }
+        if type.conforms(to: .audio) { return .skip("当前模型不支持音频内容检索") }
         return .ignore
     }
 

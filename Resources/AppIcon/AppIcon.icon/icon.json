@@ -1,28 +1,28 @@
 {
-  "fill" : {
-    "solid" : "srgb:0.07451,0.12549,0.10196,1.00000"
+  "fill": {
+    "solid": "srgb:0.06275,0.24706,0.26275,1.00000"
   },
-  "groups" : [
+  "groups": [
     {
-      "layers" : [
+      "layers": [
         {
-          "image-name" : "d-mark.svg",
-          "name" : "d-mark"
+          "image-name": "d-mark.svg",
+          "name": "Chinese search mark"
         }
       ],
-      "name" : "D"
+      "name": "Search"
     },
     {
-      "layers" : [
+      "layers": [
         {
-          "image-name" : "tiles.svg",
-          "name" : "tiles"
+          "image-name": "tiles.svg",
+          "name": "Chinese seal"
         }
       ],
-      "name" : "Tiles"
+      "name": "Seal"
     }
   ],
-  "supported-platforms" : {
-    "squares" : "shared"
+  "supported-platforms": {
+    "squares": "shared"
   }
 }

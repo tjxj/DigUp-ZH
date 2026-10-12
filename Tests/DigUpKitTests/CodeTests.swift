@@ -72,10 +72,11 @@ import Testing
         #expect(pieces.last?.last == 102)
     }
 
-    @Test func aVeryLongLineIsCutForTheModel() {
-        let pieces = CodeExtractor.lines("let a = 1\n" + String(repeating: "y", count: 9000) + "\nlet b = 2\n", size: 1800)
-        #expect(pieces.map(\.first) == [1, 2, 3])
-        #expect(pieces[1].text.count == CodeExtractor.longestPiece)
+    @Test func aVeryLongLineIsSplitWithoutDroppingItsTail() {
+        let pieces = CodeExtractor.lines("let a = 1\n" + String(repeating: "y", count: 9000) + "tail-marker\nlet b = 2\n", size: 1800)
+        #expect(pieces.first?.first == 1 && pieces.last?.first == 3)
+        #expect(pieces.filter { $0.first == 2 }.allSatisfy { $0.last == 2 && $0.text.count <= CodeExtractor.longestPiece })
+        #expect(pieces.contains { $0.text.contains("tail-marker") })
     }
 
     @Test func windowsLineEndingsAndBlankEdges() {

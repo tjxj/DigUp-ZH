@@ -3,11 +3,11 @@ import Foundation
 
 /// What to index, where the index and the model live, and the hotkey.
 ///
-/// Saved in the app's defaults domain (com.abdurrahim.DigUp). Launch arguments override any of it without being
+/// Saved in the app's defaults domain (com.tjxj.DigUp-ZH). Launch arguments override any of it without being
 /// saved, which is how tests point the app at the testbed and never at real folders:
 ///
-///     DigUp.app/Contents/MacOS/DigUp -roots ~/DigUpTestbed/real -indexDir <repo>/.dev/app-index \
-///         -modelsDir <repo>/.dev/models -defaultsSuite com.abdurrahim.DigUp.dev
+    ///     DigUp-ZH.app/Contents/MacOS/DigUp-ZH -roots ~/DigUpTestbed/real -indexDir <repo>/.dev/app-index \
+///         -modelsDir <repo>/.dev/models -defaultsSuite com.tjxj.DigUp-ZH.dev
 ///
 /// `-roots` takes one folder, several joined with ":", or a plist array. `-defaultsSuite` keeps what the app saves
 /// (onboarding's folders, a new hotkey) out of the real settings. With no roots the app indexes nothing and opens
@@ -25,7 +25,7 @@ nonisolated struct AppSettings: Sendable {
     /// On (the default), the big first pass of a folder (the backfill) runs on battery too; off, it waits for a
     /// charger. New files always index right away, and Low Power Mode or a hot Mac make the backfill wait either way.
     var indexOnBattery: Bool
-    /// The query encoder (~0.25 GB) exits after this long without a query; the next panel open starts it again.
+    /// The query encoder exits after this long without a query; the next panel open starts it again.
     var encoderIdleSeconds: Double
     /// Onboarding was finished (or closed after choosing folders); it doesn't open by itself again.
     var onboarded: Bool
@@ -40,13 +40,22 @@ nonisolated struct AppSettings: Sendable {
     var codeQuietSeconds: Double
 
     static let supportDirectory = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support/DigUp")
+        .appendingPathComponent("Library/Application Support/DigUp-ZH")
     static let defaultIndexDirectory = supportDirectory.appendingPathComponent("index.noindex")
     static let defaultHotkey = "cmd+shift+space"
 
+    /// Release bundles include both models. An incomplete bundle falls back to writable download storage.
+    static var defaultModelsDirectory: URL {
+        if let bundled = Bundle.main.resourceURL?.appendingPathComponent("Models"),
+           ModelFiles.missing(in: bundled).isEmpty {
+            return bundled
+        }
+        return ModelFiles.installed
+    }
+
     /// The battery switch, in onboarding and Settings.
-    static let batteryTitle = "Index on battery power"
-    static let batteryDetail = "When it's off, a folder's first pass waits for a charger. New files always go in right away."
+    static let batteryTitle = "使用电池时也建立索引"
+    static let batteryDetail = "关闭后，首次批量读取文件会等待接通电源。新增文件仍会及时处理。"
 
     /// Where settings are saved. Reads see launch arguments first either way. (UserDefaults is thread-safe.)
     nonisolated(unsafe) static let defaults: UserDefaults = {
@@ -64,7 +73,7 @@ nonisolated struct AppSettings: Sendable {
                 ?? defaults.string(forKey: "excludedTypes").map { [$0] } ?? [])
                 .flatMap { IndexOptions.extensions($0) }.sorted(),
             indexDirectory: defaults.string(forKey: "indexDir").map(folderURL) ?? defaultIndexDirectory,
-            modelsDirectory: defaults.string(forKey: "modelsDir").map(folderURL) ?? ModelFiles.installed,
+            modelsDirectory: defaults.string(forKey: "modelsDir").map(folderURL) ?? defaultModelsDirectory,
             hotkey: defaults.string(forKey: "hotkey") ?? defaultHotkey,
             indexOnBattery: defaults.object(forKey: "indexOnBattery") == nil || defaults.bool(forKey: "indexOnBattery"),
             encoderIdleSeconds: defaults.object(forKey: "encoderIdleSeconds") == nil

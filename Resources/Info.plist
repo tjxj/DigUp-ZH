@@ -2,51 +2,25 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>en</string>
-	<key>CFBundleDisplayName</key>
-	<string>DigUp</string>
-	<key>CFBundleExecutable</key>
-	<string>DigUp</string>
-	<key>CFBundleIconFile</key>
-	<string>AppIcon</string>
-	<key>CFBundleIconName</key>
-	<string>AppIcon</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.abdurrahim.DigUp</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>DigUp</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>0.6.0</string>
-	<key>CFBundleVersion</key>
-	<string>11</string>
-	<key>LSApplicationCategoryType</key>
-	<string>public.app-category.productivity</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
-	<key>LSUIElement</key>
-	<true/>
-	<key>NSAppleEventsUsageDescription</key>
-	<string>DigUp asks QuickTime Player to open a recording at the moment that matched your search.</string>
-	<key>NSDesktopFolderUsageDescription</key>
-	<string>DigUp indexes the folders you choose so you can search them by describing what's inside. Everything stays on this Mac.</string>
-	<key>NSDocumentsFolderUsageDescription</key>
-	<string>DigUp indexes the folders you choose so you can search them by describing what's inside. Everything stays on this Mac.</string>
-	<key>NSDownloadsFolderUsageDescription</key>
-	<string>DigUp indexes the folders you choose so you can search them by describing what's inside. Everything stays on this Mac.</string>
-	<key>NSHighResolutionCapable</key>
-	<true/>
-	<key>NSRemovableVolumesUsageDescription</key>
-	<string>DigUp indexes the folders you choose so you can search them by describing what's inside. Everything stays on this Mac.</string>
-	<key>SUEnableAutomaticChecks</key>
-	<true/>
-	<key>SUFeedURL</key>
-	<string>https://raw.githubusercontent.com/ARahim3/DigUp/main/appcast.xml</string>
-	<key>SUPublicEDKey</key>
-	<string>dyiW9CWkvqSnsGTWMmzmnkggQBsXpRuHCUIS2RyRkaw=</string>
+  <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
+  <key>CFBundleLocalizations</key><array><string>zh-Hans</string><string>zh-Hant</string><string>en</string></array>
+  <key>CFBundleDisplayName</key><string>DigUp-ZH</string>
+  <key>CFBundleExecutable</key><string>DigUp-ZH</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundleIdentifier</key><string>com.tjxj.DigUp-ZH</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>DigUp-ZH</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSAppleEventsUsageDescription</key><string>DigUp-ZH 使用 QuickTime Player 从搜索匹配的画面位置打开视频。</string>
+  <key>NSDesktopFolderUsageDescription</key><string>DigUp-ZH 只读取你选择的文件夹，用来在本机搜索文件内容。文件不会上传。</string>
+  <key>NSDocumentsFolderUsageDescription</key><string>DigUp-ZH 只读取你选择的文件夹，用来在本机搜索文件内容。文件不会上传。</string>
+  <key>NSDownloadsFolderUsageDescription</key><string>DigUp-ZH 只读取你选择的文件夹，用来在本机搜索文件内容。文件不会上传。</string>
+  <key>NSRemovableVolumesUsageDescription</key><string>DigUp-ZH 只读取你选择的文件夹，用来在本机搜索文件内容。文件不会上传。</string>
 </dict>
 </plist>

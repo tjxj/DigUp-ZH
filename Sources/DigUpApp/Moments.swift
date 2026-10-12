@@ -39,13 +39,13 @@ extension ResultRow {
         return nil
     }
 
-    /// "Open at 0:06" when the recording's app can be told the moment (QuickTime Player, IINA), else "Open". A PDF
+    /// "Open at 0:06" when the recording's app can be told the moment (QuickTime Player, IINA), else "打开". A PDF
     /// opens with your words in Preview's search, but Preview doesn't go to the page by itself. Code opens in the
     /// editor chosen for it: "Open in Zed".
     var openTitle: String {
-        if kind == .code, !CodeEditor.current.id.isEmpty { return "Open in \(CodeEditor.current.name)" }
-        if let moment, moment >= 1, Opener.jumpsToMoments(url) { return "Open at \(Self.clock(moment))" }
-        return "Open"
+        if kind == .code, !CodeEditor.current.id.isEmpty { return "在 \(CodeEditor.current.name) 中打开" }
+        if let moment, moment >= 1, Opener.jumpsToMoments(url) { return "从 \(Self.clock(moment)) 开始播放" }
+        return "打开"
     }
 
     /// The line a code result opens at: where the name is defined or the query's words are, else where its stretch

@@ -1,0 +1,17 @@
+name: macOS build and tests
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build runtime
+        run: scripts/build-llama.sh
+      - name: Test
+        run: bash scripts/test.sh
+      - name: Build application
+        run: ./build.sh

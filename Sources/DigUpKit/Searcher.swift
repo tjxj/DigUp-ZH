@@ -24,14 +24,14 @@ public struct SearchHit: Sendable {
     public var focus: Double? = nil
 }
 
-/// Hybrid search: meaning (EmbeddingGemma's vectors) + words (FTS5).
+/// Hybrid search: meaning (Qwen's vectors) + words (FTS5).
 ///
 /// Meaning is the model's cosine similarity, put on one scale per query (`meaning`): every vector is scored anyway, so
 /// the distribution comes for free, and only segments that stand out (`zGate`) count as meaning matches. That also
 /// gives an honest "nothing found". Words rescue what a vector can't hold exactly: codes, IDs and names.
 public final class Searcher {
     let store: IndexStore
-    private var matrix: VectorStorage?   // rows × 768 float16, row-major
+    private var matrix: VectorStorage?   // rows × 2048 float16, row-major
     private var rowFile: [Int64] = []
     private var rowSegment: [Int64] = []
     private var rowModality: [Modality] = []
@@ -141,14 +141,15 @@ public final class Searcher {
         if !patterns.isEmpty {
             var seen = Set<Int64>()
             try store.db.query("""
-                SELECT s.file, s.id, snippet(fts, 1, '«', '»', '…', 12), fts.original FROM fts
-                JOIN segments s ON s.id = fts.rowid
+                SELECT s.file, s.id, snippet(fts, 1, '«', '»', '…', 12), fts.original, s.kind, f.path FROM fts
+                JOIN segments s ON s.id = fts.rowid JOIN files f ON f.id = s.file
                 WHERE fts MATCH ? ORDER BY bm25(fts, 3.0, 1.0) LIMIT 1000
                 """, [.text(patterns.joined(separator: " OR "))]) { row in
                 let file = row.int(0)
                 guard words.count < 100, allowed(file), seen.insert(file).inserted else { return }
                 // Text that normalizing changed is quoted as it's written (with its hamza, harakat, joiners).
-                let snippet = row.text(3).flatMap { SearchText.snippet($0, terms: terms) } ?? row.text(2)
+                let original = row.text(4) == SegmentKind.name.rawValue ? row.text(5) : row.text(3)
+                let snippet = original.flatMap { SearchText.snippet($0, terms: terms) } ?? row.text(2)
                 words.append((file, row.int(1), snippet))
             }
             if !words.isEmpty {
@@ -169,11 +170,18 @@ public final class Searcher {
         let lookup = Self.isLookup(terms) || identifier != nil
         let (meaningWeight, wordsWeight) = lookup ? (0.5, wordWeight * 2) : (1, wordWeight)
         let hinted = Self.kindHints(text)
+        // With 1–5 files, a z-score gate can mathematically exclude every semantic result.
+        // Use a conservative absolute floor only for these tiny libraries, never for exact-ID lookups.
+        // This is a retrieval heuristic, not a calibrated probability or model accuracy claim.
+        let smallLibrary = Set(rowFile).count <= 5
+        let fallback = Set(best.filter { !lookup && smallLibrary && $0.value.cosine >= 0.35 }.keys)
         var candidates = Set(best.filter { $0.value.z >= zGate }.keys)
+        candidates.formUnion(fallback)
         for (file, share) in coverage where share >= 0.5 { candidates.insert(file) }
         var scored: [Int64: Double] = [:]
         for file in candidates {
-            var score = meaningWeight * max(best[file]?.z ?? 0, 0) + wordsWeight * pow(coverage[file] ?? 0, 1.5)
+            let semanticScore = max(best[file]?.z ?? 0, fallback.contains(file) ? (best[file]?.cosine ?? 0) * 4 : 0)
+            var score = meaningWeight * semanticScore + wordsWeight * pow(coverage[file] ?? 0, 1.5)
             if let kind = fileKind[file], hinted.contains(kind) { score += 1 }
             scored[file] = score
         }
@@ -187,7 +195,7 @@ public final class Searcher {
             let semantic = best[file]
             let keyword = wordRank[file]
             // Point at the best meaning segment if it stands out; else at the segment the words matched.
-            let useMeaning = semantic.map { $0.z >= zGate || keyword == nil } ?? false
+            let useMeaning = semantic.map { $0.z >= zGate || fallback.contains(file) || keyword == nil } ?? false
             guard var segmentID = useMeaning ? semantic.map({ rowSegment[$0.row] }) : keyword?.1.segment else { continue }
             var focus: Double?
             if isCode {
@@ -293,7 +301,7 @@ public final class Searcher {
                     let count = min(VectorStorage.blockRows, rows - row)
                     Vectors.floats(fromHalf: matrix.halves + row * Vectors.dimension, count: count * Vectors.dimension,
                                    to: matrix.block)
-                    // (count × 768) · (768 × 1)
+                    // (count × dimension) · (dimension × 1)
                     vDSP_mmul(matrix.block, 1, query.baseAddress!, 1, scores.baseAddress! + row, 1,
                               vDSP_Length(count), 1, vDSP_Length(Vectors.dimension))
                     row += count
@@ -367,6 +375,9 @@ public final class Searcher {
         "ছবি", "স্ক্রিনশট", "ভিডিও", "ফাইল", "পিডিএফ",
         "في", "من", "على", "الى", "عن", "مع", "هذا", "هذه", "ذلك", "التي", "الذي", "اين", "ما",
         "صورة", "صور", "لقطة", "شاشة", "فيديو", "ملف", "مستند",
+        "的", "了", "是", "在", "我", "我们", "帮", "帮我", "查找", "寻找", "找", "查询", "搜索", "一下", "请",
+        "把", "和", "与", "以及", "一个", "这", "这个", "那", "那个", "关于", "文件", "文档", "图片", "照片", "截图",
+        "视频", "音频",
     ]
 
     /// The content words of a query, normalized as keyword search keeps its text (`SearchText`). Kind words
@@ -374,9 +385,9 @@ public final class Searcher {
     /// two letters or more count; a Bengali letter with its vowel sign ("মা") is two.
     public static func terms(_ text: String) -> [String] {
         var seen = Set<String>()
-        return SearchText.normalized(text).lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { $0.unicodeScalars.count >= 2 && !stopwords.contains($0) && seen.insert($0).inserted }
+        return Array(SearchText.words(String(text.prefix(4096)))
+            .filter { ($0.unicodeScalars.count >= 2 || SearchText.containsHan($0))
+                && !stopwords.contains($0) && seen.insert($0).inserted }.prefix(64))
     }
 
     /// FTS5 patterns for the query's words: quoted, and as prefixes for the last word while it's being typed and for
@@ -384,7 +395,9 @@ public final class Searcher {
     static func patterns(_ terms: [String], prefixLast: Bool) -> [String] {
         terms.enumerated().map { index, term in
             let prefix = (prefixLast && index == terms.count - 1) || SearchText.inflects(term)
-            return "\"\(term)\"" + (prefix ? "*" : "")
+            let phrase = SearchText.indexed(term).replacingOccurrences(of: "\"", with: "\"\"")
+                .components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
+            return "\"\(phrase)\"" + (prefix ? "*" : "")
         }
     }
 
@@ -405,12 +418,15 @@ public final class Searcher {
         "গান": .audio, "রেকর্ডিং": .audio,
         "لقطة": .screenshot, "صورة": .image, "صور": .image, "مستند": .doc, "ملاحظات": .doc, "فيديو": .video,
         "مقطع": .video, "صوت": .audio, "تسجيل": .audio, "اغنية": .audio,
+        "截图": .screenshot, "截屏": .screenshot, "照片": .image, "图片": .image, "相片": .image,
+        "论文": .pdf, "文档": .doc, "笔记": .doc, "视频": .video, "影片": .video,
+        "音频": .audio, "录音": .audio, "音乐": .audio, "播客": .audio,
     ]
 
     /// Kinds the query asks for ("…in a video", "screenshot of…", "ভিডিওতে"): a soft boost, not a filter. Bengali
     /// attaches case endings, so a Bengali kind word also counts at the start of a longer word.
     static func kindHints(_ text: String) -> Set<FileKind> {
-        Set(SearchText.normalized(text).lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
+        Set(SearchText.words(text)
             .compactMap { word in
                 kindWords[word] ?? kindWords.first { key, _ in
                     SearchText.inflects(key) && key.unicodeScalars.count >= 3 && word.hasPrefix(key)

@@ -3,6 +3,9 @@
 .swiftpm/
 build.noindex/
 /Vendor/
+/.models/
+/.qa/
+/dist/
 
 # Dev runs (scripts/dev-run.sh): their indexes, models and settings
 .dev/

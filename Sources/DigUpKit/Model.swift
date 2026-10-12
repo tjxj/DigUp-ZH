@@ -27,8 +27,8 @@ public enum SegmentKind: String, Sendable {
     case cells            // a stretch of a notebook: loc to loc_end are its first and last cells, from 1
 }
 
-/// What produced a segment's vector. Scores are normalized per modality because text vectors score higher than
-/// image or audio vectors for the same topic (measured: 0.75–0.86 vs 0.67–0.78).
+/// What produced a segment's vector. Scores are normalized per modality to balance text and image results.
+/// The audio value is retained for database compatibility; Qwen does not create audio vectors.
 public enum Modality: String, Sendable, CaseIterable {
     case none, text, image, audio
 }
@@ -38,8 +38,7 @@ public struct IndexOptions: Sendable {
     /// This index is the code index: the code folders' source files, their repos' docs and their notebooks, read as
     /// stretches of whole lines (`CodeExtractor`), and nothing else (`Rules.classifyCode`).
     public var code = false
-    /// Characters a stretch of code holds at most (whole lines; a longer line is a stretch of its own). On the real-code
-    /// eval (2026-10-09) 1,200 and 3,600 both lost to it: shorter cut functions apart, longer blurred them together.
+    /// Characters per code stretch. Long lines are split with overlap; ordinary lines stay together.
     public var codeStretch = 1800
     /// A bigger source file was made by a program (an amalgamation, data written as code): left out. Hand-written
     /// files can pass 256 KB (llama.cpp's CPU ops are 426 KB), rarely 1 MB.
@@ -63,7 +62,7 @@ public struct IndexOptions: Sendable {
     public var pageBudget = 280
     public var frameBudget = 70
     public var frameInterval = 3.0         // seconds between sampled video frames (near-duplicates are dropped)
-    public var audioWindow = 30.0          // the model silently ignores audio past 30 s of one input
+    public var audioWindow = 30.0          // Legacy extraction settings; audio is not indexed by this model.
     public var audioHop = 25.0
     public var excludedFolders: [String] = []
     public var excludedExtensions: Set<String> = []
@@ -81,21 +80,24 @@ public struct IndexOptions: Sendable {
         // "code1": how code is read (stretches of lines, the path in its repo as the title). A change to it is a new
         // number, and every code index is read again.
         if code { return "code1 lines\(codeStretch)" }
-        return "photo\(photoBudget) shot\(screenshotBudget) page\(pageBudget) frame\(frameBudget)/\(frameInterval)s audio\(audioWindow)/\(audioHop)s"
+        return "qwen-zh1 photo\(photoBudget) shot\(screenshotBudget) page\(pageBudget) frame\(frameBudget)/\(frameInterval)s visual-only"
     }
 }
 
-/// EmbeddingGemma 2's task prompts (model card). Media inputs take no prompt.
+/// Qwen3-VL-Embedding's official system/user/assistant framing. The final newline is pooled.
 public enum Prompts {
-    public static func query(_ text: String) -> String { "task: search result | query: \(text)" }
+    public static func query(_ text: String) -> String { framed(text) }
 
-    /// A search of the code index (`CodeQuery`): the model card's prompt for finding code by what it does. Code is
-    /// embedded as any document is (`document`, its path in its repo as the title). Measured against the search prompt
-    /// on the real-code eval (2026-10-09, 27 queries): 24 vs 22 in the top 5, MRR 0.79 vs 0.75.
-    public static func codeQuery(_ text: String) -> String { "task: code retrieval | query: \(text)" }
+    /// Code uses the same Qwen embedding framing as other text; the repository path becomes the document title.
+    public static func codeQuery(_ text: String) -> String { framed(text) }
 
     public static func document(title: String?, text: String) -> String {
-        "title: \((title?.isEmpty ?? true) ? "none" : title!) | text: \(text)"
+        framed((title?.isEmpty == false ? title! + "\n" : "") + text)
+    }
+
+    public static func framed(_ content: String) -> String {
+        "<|im_start|>system\nRepresent the user's input.<|im_end|>\n<|im_start|>user\n"
+            + content + "<|im_end|>\n<|im_start|>assistant\n"
     }
 }
 

@@ -58,15 +58,20 @@ import Testing
     @Test func missingModelFilesInDownloadOrder() throws {
         #expect(ModelFiles.missing(in: folder) == [ModelFiles.text, ModelFiles.media])
         FileManager.default.createFile(atPath: folder.appendingPathComponent(ModelFiles.text.name).path, contents: nil)
+        #expect(ModelFiles.missing(in: folder) == [ModelFiles.text, ModelFiles.media]) // An empty download is not ready.
+        let handle = try FileHandle(forWritingTo: folder.appendingPathComponent(ModelFiles.text.name))
+        try handle.truncate(atOffset: UInt64(ModelFiles.text.bytes))
+        try handle.close()
         #expect(ModelFiles.missing(in: folder) == [ModelFiles.media])
-        #expect(ModelFiles.totalBytes == 864_676_480)
+        #expect(ModelFiles.totalBytes == 1_926_805_664)
     }
 
     @Test func modelFilesComeFromTheHuggingFaceCacheWhenThere() throws {
         // As `hf download` leaves them: snapshots/<revision>/<name> → a blob. Sparse, so no disk is used.
         let hub = folder.appendingPathComponent("hub")
-        let snapshot = hub.appendingPathComponent("models--ggml-org--embeddinggemma-2-GGUF/snapshots/\(ModelFiles.revision)")
-        let blobs = hub.appendingPathComponent("models--ggml-org--embeddinggemma-2-GGUF/blobs")
+        let repository = "models--" + ModelFiles.repository.replacingOccurrences(of: "/", with: "--")
+        let snapshot = hub.appendingPathComponent("\(repository)/snapshots/\(ModelFiles.revision)")
+        let blobs = hub.appendingPathComponent("\(repository)/blobs")
         try FileManager.default.createDirectory(at: snapshot, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: blobs, withIntermediateDirectories: true)
         let blob = blobs.appendingPathComponent("2188ac1d")

@@ -1,48 +1,51 @@
 import AppKit
 import SwiftUI
 
-/// The menubar icon: the app icon's mark, a boxed D (`Resources/AppIcon/menubar.svg`, drawn here from the same geometry
-/// so it's sharp at any scale). While the model downloads or files index, a progress ring takes the box's place; while
-/// indexing is paused, two bars take the D's (at full strength: a dimmed icon reads as "off", and search still works).
+/// The app's 文 magnifying glass (`Resources/AppIcon/menubar.svg`), drawn at any scale. Its lens becomes the progress
+/// ring during processing; a pair of bars replaces 文 while indexing is paused. Search remains available.
 enum StatusIcon {
-    /// `update`: a newer version is waiting, a dot at the box's top right.
+    /// `update`: a newer version is waiting, a dot at the lens's top right.
     static func image(progress: Double?, paused: Bool = false, update: Bool = false) -> NSImage {
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { rect in
             // The SVG's 64-unit grid, y down, so angles grow clockwise on screen.
             let grid = NSAffineTransform()
             grid.scale(by: rect.width / 64)
             grid.concat()
+            let handle = NSBezierPath()
+            handle.move(to: NSPoint(x: 42, y: 42))
+            handle.line(to: NSPoint(x: 55, y: 55))
+            handle.lineWidth = 7
+            handle.lineCapStyle = .round
+            NSColor.black.setStroke()
+            handle.stroke()
             if let progress {
-                let center = NSPoint(x: 32, y: 32)
+                let center = NSPoint(x: 28, y: 28)
                 let track = NSBezierPath()
-                track.appendArc(withCenter: center, radius: 27, startAngle: 0, endAngle: 360)
-                track.lineWidth = 5.3
+                track.appendArc(withCenter: center, radius: 19, startAngle: 0, endAngle: 360)
+                track.lineWidth = 5
                 NSColor.black.withAlphaComponent(0.25).setStroke()
                 track.stroke()
                 let arc = NSBezierPath()
-                arc.appendArc(withCenter: center, radius: 27, startAngle: -90,
+                arc.appendArc(withCenter: center, radius: 19, startAngle: -90,
                               endAngle: -90 + 360 * max(0.03, min(1, progress)), clockwise: false)
-                arc.lineWidth = 5.3
+                arc.lineWidth = 5
                 arc.lineCapStyle = .round
                 NSColor.black.setStroke()
                 arc.stroke()
             } else {
-                let box = NSBezierPath(roundedRect: NSRect(x: 4.5, y: 4.5, width: 55, height: 55), xRadius: 12, yRadius: 12)
-                for (from, to) in [((32, 5), (32, 16)), ((32, 48), (32, 59)), ((5, 32), (17, 32)), ((47, 32), (59, 32))] {
-                    box.move(to: NSPoint(x: from.0, y: from.1))
-                    box.line(to: NSPoint(x: to.0, y: to.1))
-                }
-                box.lineWidth = 4.5
+                let lens = NSBezierPath(ovalIn: NSRect(x: 9, y: 9, width: 38, height: 38))
+                lens.lineWidth = 5
                 NSColor.black.setStroke()
-                box.stroke()
+                lens.stroke()
             }
             NSColor.black.setFill()
             if paused, progress == nil {
-                for x in [23.5, 34.5] {
-                    NSBezierPath(roundedRect: NSRect(x: x, y: 21, width: 6, height: 22), xRadius: 1.8, yRadius: 1.8).fill()
+                for x in [21.0, 30.0] {
+                    NSBezierPath(roundedRect: NSRect(x: x, y: 19, width: 5, height: 18), xRadius: 1.5, yRadius: 1.5).fill()
                 }
             } else {
-                letter.fill()
+                NSColor.black.setStroke()
+                character.stroke()
             }
             if update {
                 // Cut a gap around it, so it reads as a dot on the mark and not part of it.
@@ -54,22 +57,25 @@ enum StatusIcon {
             return true
         }
         image.isTemplate = true   // takes the menubar's color, light or dark
-        image.accessibilityDescription = "DigUp"
+        image.accessibilityDescription = "DigUp-ZH"
         return image
     }
 
-    /// The D: a stem with rounded corners and a half circle.
-    private static var letter: NSBezierPath {
-        let d = NSBezierPath()
-        d.move(to: NSPoint(x: 25, y: 21))
-        d.line(to: NSPoint(x: 30, y: 21))
-        d.appendArc(withCenter: NSPoint(x: 30, y: 32), radius: 11, startAngle: -90, endAngle: 90, clockwise: false)
-        d.line(to: NSPoint(x: 25, y: 43))
-        d.appendArc(withCenter: NSPoint(x: 25, y: 41), radius: 2, startAngle: 90, endAngle: 180, clockwise: false)
-        d.line(to: NSPoint(x: 23, y: 23))
-        d.appendArc(withCenter: NSPoint(x: 25, y: 23), radius: 2, startAngle: 180, endAngle: 270, clockwise: false)
-        d.close()
-        return d
+    /// 文, using the exact stroke geometry from the menu bar SVG.
+    private static var character: NSBezierPath {
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: 27, y: 15))
+        path.line(to: NSPoint(x: 29, y: 17))
+        path.move(to: NSPoint(x: 18, y: 23))
+        path.line(to: NSPoint(x: 38, y: 23))
+        path.move(to: NSPoint(x: 22, y: 25))
+        path.curve(to: NSPoint(x: 34, y: 39), controlPoint1: NSPoint(x: 24, y: 30), controlPoint2: NSPoint(x: 28, y: 35))
+        path.move(to: NSPoint(x: 34, y: 25))
+        path.curve(to: NSPoint(x: 22, y: 39), controlPoint1: NSPoint(x: 32, y: 30), controlPoint2: NSPoint(x: 28, y: 35))
+        path.lineWidth = 3
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        return path
     }
 }
 
@@ -120,7 +126,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             shownPaused = paused
             shownUpdate = update
         }
-        button.toolTip = "DigUp — \(model.statusLine)"
+        button.toolTip = "DigUp-ZH · \(model.statusLine)"
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -132,39 +138,39 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         menu.addItem(header)
         menu.addItem(.separator())
         if let version = model.updateAvailable {
-            menu.addItem(ActionMenuItem("Update to DigUp \(version)…") { [weak self] in self?.onCheckForUpdates() })
+            menu.addItem(ActionMenuItem("更新到 DigUp-ZH \(version)…") { [weak self] in self?.onCheckForUpdates() })
             menu.addItem(.separator())
         }
 
         if !model.hasFolders {
-            menu.addItem(ActionMenuItem("Choose Folders to Search…") { [weak self] in self?.onChooseFolders() })
+            menu.addItem(ActionMenuItem("选择搜索文件夹…") { [weak self] in self?.onChooseFolders() })
         }
-        let search = ActionMenuItem("Search…") { [weak self] in self?.onSearch() }
+        let search = ActionMenuItem("搜索…") { [weak self] in self?.onSearch() }
         if let hotkey = model.hotkey, let (key, modifiers) = hotkey.menuEquivalent {
             search.keyEquivalent = key
             search.keyEquivalentModifierMask = modifiers
         }
         menu.addItem(search)
-        menu.addItem(ActionMenuItem("Open DigUp") { [weak self] in self?.onOpenWindow() })
+        menu.addItem(ActionMenuItem("打开 DigUp-ZH") { [weak self] in self?.onOpenWindow() })
         if model.hasFolders {
             menu.addItem(.separator())
             let paused = model.status.paused
-            menu.addItem(ActionMenuItem(paused ? "Resume Indexing" : "Pause Indexing") { [weak self] in
+            menu.addItem(ActionMenuItem(paused ? "继续建立索引" : "暂停建立索引") { [weak self] in
                 self?.onPauseChanged(!paused)
             })
         }
         switch model.download.phase {
         case .failed, .needed:
-            menu.addItem(ActionMenuItem("Download the Model") { [weak self] in self?.model.download.start() })
+            menu.addItem(ActionMenuItem("下载模型") { [weak self] in self?.model.download.start() })
         default:
             break
         }
         menu.addItem(.separator())
-        menu.addItem(ActionMenuItem("Settings…", key: ",") { [weak self] in self?.onSettings() })
+        menu.addItem(ActionMenuItem("设置…", key: ",") { [weak self] in self?.onSettings() })
         if model.updateAvailable == nil {
-            menu.addItem(ActionMenuItem("Check for Updates…") { [weak self] in self?.onCheckForUpdates() })
+            menu.addItem(ActionMenuItem("查看版本发布…") { [weak self] in self?.onCheckForUpdates() })
         }
-        menu.addItem(ActionMenuItem("Quit DigUp", key: "q") { NSApp.terminate(nil) })
+        menu.addItem(ActionMenuItem("退出 DigUp-ZH", key: "q") { NSApp.terminate(nil) })
     }
 
     /// The menu as text, for the -debugMenu launch argument (menus can't be clicked from a script).
@@ -216,13 +222,13 @@ struct MenuStatusView: View {
     private var detail: String? {
         if model.download.isActive { return model.download.progressText }
         if case .failed(let message) = model.download.phase { return message }
-        guard model.hasFolders else { return "Pick the folders it should search." }
+        guard model.hasFolders else { return "请选择要搜索的文件夹。" }
         let missing = Set(model.status.missingRoots), unreadable = Set(model.status.unreadableRoots)
         let names = model.settings.roots.map { root in
-            root.lastPathComponent + (missing.contains(root.path) ? " (not connected)"
-                                      : unreadable.contains(root.path) ? " (no access)" : "")
+            root.lastPathComponent + (missing.contains(root.path) ? "（未连接）"
+                                      : unreadable.contains(root.path) ? "（无访问权限）" : "")
         }
-        return "In " + names.joined(separator: ", ")
+        return "搜索范围：" + names.joined(separator: ", ")
     }
 }
 

@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "DigUp",
+    name: "DigUp-ZH",
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "digup", targets: ["digup"]),
@@ -10,13 +10,11 @@ let package = Package(
         .library(name: "DigUpKit", targets: ["DigUpKit"]),
     ],
     dependencies: [
-        // In-app updates (the app only). build.sh embeds the framework in Contents/Frameworks and signs it.
-        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
     ],
     targets: [
         // The engine: crawler, extractors, index store, the embedder interface and worker client, search. No UI.
         .target(name: "DigUpKit"),
-        // llama.cpp (scripts/build-llama.sh builds it into Vendor/llama) and EmbeddingGemma 2 on it.
+        // llama.cpp (scripts/build-llama.sh builds it into Vendor/llama) and Qwen3-VL-Embedding-2B on it.
         .systemLibrary(name: "CLlama", path: "Sources/CLlama"),
         .target(
             name: "LlamaRuntime",
@@ -30,11 +28,11 @@ let package = Package(
         // "DigUp": on a case-insensitive disk it would collide with the `digup` CLI binary.)
         .executableTarget(
             name: "DigUpApp",
-            dependencies: ["DigUpKit", .product(name: "Sparkle", package: "Sparkle")],
+            dependencies: ["DigUpKit"],
             swiftSettings: [.defaultIsolation(MainActor.self)],
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         ),
         .testTarget(name: "DigUpKitTests", dependencies: ["DigUpKit"]),
-        .testTarget(name: "LlamaRuntimeTests", dependencies: ["LlamaRuntime"]),
+        .testTarget(name: "LlamaRuntimeTests", dependencies: ["LlamaRuntime"], exclude: ["Reference"]),
     ]
 )

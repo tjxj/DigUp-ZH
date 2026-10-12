@@ -139,6 +139,48 @@ import Testing
         #expect(try state(store, url.path).state == "done")
     }
 
+    @Test func aLongChinesePDFPageEmbedsItsTailInOverlappingPassages() throws {
+        let text = String(repeating: "这是关于项目预算的详细说明。", count: 400)
+        try FileManager.default.createDirectory(at: files, withIntermediateDirectories: true)
+        let url = files.appendingPathComponent("长页测试.pdf")
+        var box = CGRect(x: 0, y: 0, width: 1000, height: 10000)
+        let context = try #require(CGContext(url as CFURL, mediaBox: &box, nil))
+        context.beginPDFPage(nil)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        (text as NSString).draw(in: CGRect(x: 50, y: 200, width: 900, height: 9600),
+                               withAttributes: [.font: NSFont.systemFont(ofSize: 12)])
+        ("页尾星际航行计划" as NSString).draw(at: NSPoint(x: 50, y: 50),
+                                           withAttributes: [.font: NSFont.systemFont(ofSize: 12)])
+        NSGraphicsContext.restoreGraphicsState()
+        context.endPDFPage()
+        context.closePDF()
+        let extracted = try PDFExtractor.pages(of: url, range: { 0..<$0 }, minText: 20, renderPixels: 1000, to: folder)
+        let original = try #require(extracted.pages.first?.text)
+        #expect(original.count > 4000)
+        #expect(SearchText.normalized(original).contains("页尾星际航行计划"))
+        let chunks = DocExtractor.chunks(original, limit: .max)
+        let store = try store()
+        let embedder = FakeEmbedder()
+        let indexer = try indexer(store, embedder)
+        _ = try indexer.sync([files])
+        #expect(try indexer.run()["done"] == 1)
+        #expect(embedder.inputs.contains { SearchText.normalized($0).contains("页尾星际航行计划") })
+        let allPassagesEmbedded = embedder.inputs == chunks.map { Prompts.document(title: "长页测试", text: $0) }
+        #expect(allPassagesEmbedded)
+        #expect(try places(store, url.path) == Array(repeating: 1, count: chunks.count))
+        var stored: [String] = []
+        try store.db.query("""
+            SELECT coalesce(fts.original, fts.body) FROM fts JOIN segments s ON s.id = fts.rowid
+            WHERE s.kind = 'page' ORDER BY s.id
+            """) { stored.append($0.text(0) ?? "") }
+        let allPassagesStored = stored == chunks
+        #expect(allPassagesStored)
+        let hit = try Searcher(store: store, loadVectors: false).search("星际航行计划", queryVector: nil).first
+        #expect(hit?.loc == 1)
+        #expect(hit?.excerpt?.contains("星际") == true)
+    }
+
     @Test func digitsGetKeywordSearchOnly() throws {
         var dump = ""
         for row in 0..<4_000 { dump += "\(row) \(row * 7919 % 100_003) \(row * 31 % 977)\n" }
@@ -302,6 +344,7 @@ final class FakeEmbedder: Embedder {
     let info = WorkerInfo(model: "fake", revision: "0000000", runtime: "test", dtype: "f32", dim: Vectors.dimension,
                           textOnly: false, loadSeconds: nil)
     private(set) var texts = 0
+    private(set) var inputs: [String] = []
 
     static func vector(for text: String) -> [Float] {
         var state = UInt64(5381)
@@ -317,6 +360,7 @@ final class FakeEmbedder: Embedder {
 
     func embedTexts(_ texts: [String]) throws -> [[Float]] {
         self.texts += texts.count
+        self.inputs += texts
         return texts.map(Self.vector(for:))
     }
 

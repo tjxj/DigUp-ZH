@@ -143,10 +143,10 @@ enum DebugHooks {
             let menu = app.statusMenu!
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 log("menu: \(menu.describeMenu())")
-                menu.performItem(titled: "Pause Indexing")
+                menu.performItem(titled: "暂停建立索引")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     log("menu after Pause: \(menu.describeMenu())")
-                    menu.performItem(titled: "Resume Indexing")
+                    menu.performItem(titled: "继续建立索引")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         log("menu after Resume: \(menu.describeMenu())")
                     }
@@ -255,7 +255,7 @@ enum DebugHooks {
         Opener.dryRun = mode == "dry"
         app.engine.open(row)
         // A real open waits for the other app to report back (QuickTime Player says where it is).
-        DispatchQueue.main.asyncAfter(deadline: .now() + (Opener.dryRun ? 0.5 : 6), execute: done)
+        DispatchQueue.main.asyncAfter(deadline: .now() + (Opener.dryRun ? 0.5 : 6)) { done() }
     }
 
     /// `-debugQuickLook`: Space on `row`, then what Quick Look shows (it's on screen, and takes the keyboard).
@@ -611,7 +611,9 @@ enum DebugHooks {
             "down": (125, "\u{F701}", []), "up": (126, "\u{F700}", []), "space": (49, " ", []),
             "esc": (53, "\u{1B}", []), "return": (36, "\r", []), "cmd+c": (8, "c", .command),
             "cmd+y": (16, "y", .command), "left": (123, "\u{F702}", []), "right": (124, "\u{F703}", []),
-            "cmd+1": (18, "1", .command), "cmd+2": (19, "2", .command), "cmd+o": (31, "o", .command),
+            "cmd+1": (18, "1", .command), "cmd+2": (19, "2", .command),
+            "cmd+3": (20, "3", .command), "cmd+4": (21, "4", .command), "cmd+5": (23, "5", .command),
+            "cmd+6": (22, "6", .command), "cmd+7": (26, "7", .command), "cmd+o": (31, "o", .command),
             "cmd+comma": (43, ",", .command),
         ]
         var entry = table[name]

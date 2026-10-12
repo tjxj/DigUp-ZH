@@ -30,7 +30,7 @@ nonisolated struct EngineStatus: Sendable, Equatable {
     var unfinished = 0   // long files with pages or chunks still to read (the backfill's rules hold them up too)
     var vectors = 0
     var paused = false
-    var waitingFor: String?   // why the backfill waits ("on battery"), if it does
+    var waitingFor: String?   // why the backfill waits ("正在使用电池"), if it does
     /// The helper found no model yet (it's downloading): files are found and named, nothing gets embedded.
     var waitingForModel = false
     /// Chosen folders that aren't there right now (an unplugged drive): skipped, and their files kept.
@@ -195,7 +195,7 @@ nonisolated final class Engine: @unchecked Sendable {
     func start() {
         searchQueue.async { [self] in
             guard openSearcher() else {
-                update { $0.activity = .failed("Can't open the index") }
+                update { $0.activity = .failed("无法打开搜索索引") }
                 return
             }
             indexQueue.async { [self] in startHelper() }
@@ -493,7 +493,7 @@ nonisolated final class Engine: @unchecked Sendable {
             try process.run()
         } catch {
             log("indexer: can't start \(process.executableURL?.path ?? "the helper"): \(error)")
-            update { $0.activity = .failed("Can't start indexing") }
+            update { $0.activity = .failed("无法开始建立索引") }
             return
         }
         helper = process
@@ -584,7 +584,7 @@ nonisolated final class Engine: @unchecked Sendable {
             log("indexer: the model or settings changed, indexing everything again (was: \(event["from"] as? String ?? "?"))")
         case "error":
             log("indexer: \(event["message"] as? String ?? "error")")
-            if event["fatal"] as? Bool == true { update { $0.activity = .failed("Indexing stopped") } }
+            if event["fatal"] as? Bool == true { update { $0.activity = .failed("建立索引已停止") } }
         default:
             break
         }
@@ -618,7 +618,7 @@ nonisolated final class Engine: @unchecked Sendable {
             log("indexer: the model changed, the code index starts over")
         case "error":
             log("indexer: code: \(event["message"] as? String ?? "error")")
-            if event["fatal"] as? Bool == true { update { $0.activity = .failed("Indexing stopped") } }
+            if event["fatal"] as? Bool == true { update { $0.activity = .failed("建立索引已停止") } }
         default:
             break
         }
@@ -752,9 +752,10 @@ nonisolated final class Engine: @unchecked Sendable {
                 let (chosen, excluded, types): ([URL], [URL], Set<String>) = lock.withLock {
                     (self.roots, self.excluded, Set(self.excludedTypes))
                 }
-                let folders = chosen.map(\.path), skipped = excluded.map(\.path)
+                let folders = chosen.map { FolderSelection.realPath($0.path) }
+                let skipped = excluded.map { FolderSelection.realPath($0.path) }
                 continuation.resume(returning: (hits ?? []).filter { hit in
-                    FolderSelection.isSearched(hit.path, folders: folders, skipped: skipped)
+                    FolderSelection.isSearched(FolderSelection.realPath(hit.path), folders: folders, skipped: skipped)
                         && !types.contains((hit.path as NSString).pathExtension.lowercased())
                         && FileManager.default.fileExists(atPath: hit.path)
                 })
@@ -765,13 +766,16 @@ nonisolated final class Engine: @unchecked Sendable {
     private func searchCode(_ text: String, vector: QueryVector?, prefixLast: Bool, limit: Int) async -> [SearchHit] {
         await withCheckedContinuation { continuation in
             searchQueue.async { [self] in
-                let (roots, skipped) = lock.withLock { (codeRoots.map(\.path), codeExcluded.map(\.path)) }
+                let (roots, skipped) = lock.withLock {
+                    (codeRoots.map { FolderSelection.realPath($0.path) },
+                     codeExcluded.map { FolderSelection.realPath($0.path) })
+                }
                 guard !roots.isEmpty, let codeSearcher else { return continuation.resume(returning: []) }
                 var values = vector?.values
                 if let vector, let indexed = codeSearcher.vectorSource, indexed != vector.source { values = nil }
                 let hits = (try? codeSearcher.search(text, queryVector: values, limit: limit, prefixLast: prefixLast)) ?? []
                 continuation.resume(returning: hits.filter { hit in
-                    FolderSelection.isSearched(hit.path, folders: roots, skipped: skipped)
+                    FolderSelection.isSearched(FolderSelection.realPath(hit.path), folders: roots, skipped: skipped)
                         && FileManager.default.fileExists(atPath: hit.path)
                 })
             }
@@ -910,15 +914,13 @@ nonisolated final class Engine: @unchecked Sendable {
     private func runningEncoder() -> EmbeddingWorker? {
         if let encoder { return encoder }
         guard !encoderFailed else { return nil }
-        let python = try? WorkerConfig.fromEnvironment()
         // Still downloading: no meaning search yet, which isn't a failure.
-        guard python != nil || FileManager.default.fileExists(
-            atPath: modelsDirectory.appendingPathComponent(ModelFiles.text.name).path) else { return nil }
+        guard !ModelFiles.missing(in: modelsDirectory).contains(ModelFiles.text) else { return nil }
         update { $0.encoder = .starting }
         let started = Date()
         do {
-            // The bundled helper runs the model (`digup worker`); DIGUP_WORKER_DIR swaps in another worker.
-            var config = python ?? .helper(Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/digup"))
+            // The app always uses its bundled Qwen helper, preserving one embedding space.
+            var config = WorkerConfig.helper(Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/digup"))
             config.environment["DIGUP_MODELS"] = modelsDirectory.path
             config.log = indexDirectory.appendingPathComponent("worker-query.log")
             config.qos = .userInitiated
@@ -935,7 +937,7 @@ nonisolated final class Engine: @unchecked Sendable {
         }
     }
 
-    /// The encoder exits after `encoderIdleSeconds` without a query (its ~0.25 GB goes back to the system), and the
+    /// The encoder exits after `encoderIdleSeconds` without a query (its model memory goes back to the system), and the
     /// vectors go with it; keyword search keeps working, and the next panel open brings both back.
     private func scheduleIdleExit() {
         encoderIdleExit?.cancel()

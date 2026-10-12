@@ -23,7 +23,7 @@ public enum CodeExtractor {
         let cells: Int?
     }
 
-    /// The model reads 2,048 tokens of an input at most; a single line longer than this is cut here.
+    /// Upper bound for one stretch. Longer lines are split into several pieces, retaining every character.
     static let longestPiece = 4000
 
     static func read(_ url: URL, options: IndexOptions) throws -> File {
@@ -117,9 +117,13 @@ public enum CodeExtractor {
             }
             var last = end
             while last > start + 1, blank(last - 1) { last -= 1 }   // blank lines at its end don't count
-            var body = lines[start..<last].joined(separator: "\n")
-            if body.count > longestPiece { body = String(body.prefix(longestPiece)) }
-            pieces.append(Piece(text: body, first: start + 1, last: last))
+            let body = lines[start..<last].joined(separator: "\n")
+            if body.count > longestPiece {
+                pieces += DocExtractor.chunks(body, size: min(max(1, size), longestPiece), overlap: 200, limit: .max)
+                    .map { Piece(text: $0, first: start + 1, last: last) }
+            } else {
+                pieces.append(Piece(text: body, first: start + 1, last: last))
+            }
             start = natural ? end : max(end - 2, start + 1)
         }
         return pieces

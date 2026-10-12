@@ -405,15 +405,11 @@ public final class Indexer {
                 }
                 prepared.payload = .audio(pieces: pieces, duration: duration)
             case .video:
-                let (interval, window, hop) = (options.frameInterval, options.audioWindow, options.audioHop)
-                let (frames, duration, hasAudio) = try runBlocking {
+                let interval = options.frameInterval
+                let (frames, duration, _) = try runBlocking {
                     try await VideoExtractor.keyframes(of: url, every: interval, maxPixel: 1024, to: folder)
                 }
-                let sound = hasAudio
-                    ? try runBlocking { try await AudioExtractor.windows(of: url, window: window, hop: hop, to: folder) }
-                        .pieces
-                    : []
-                prepared.payload = .video(frames: frames, sound: sound, duration: duration)
+                prepared.payload = .video(frames: frames, sound: [], duration: duration)
             case .code:
                 prepared.payload = .code(try CodeExtractor.read(url, options: options))
             }
@@ -533,32 +529,42 @@ public final class Indexer {
         }
         let title = title ?? URL(fileURLWithPath: file.path).deletingPathExtension().lastPathComponent
         let textPages = pages.filter { $0.imagePath == nil }
-        // A page that's mostly digits (a table, a data listing) gets keyword search only.
-        let wordPages = textPages.filter { SearchText.hasWords($0.text) }
+        // Keep short pages whole; longer pages get overlapping passages with the same page number. Taking only
+        // the first 4,000 characters silently lost the meaning of the rest of dense Chinese pages.
+        let textPieces = textPages.flatMap { page -> [(number: Int, text: String)] in
+            let parts = page.text.count <= 1800 ? [page.text] : DocExtractor.chunks(page.text, limit: .max)
+            return parts.map { (page.number, $0) }
+        }
+        // A passage that's mostly digits (a table, a data listing) gets keyword search only.
+        let wordPieces = textPieces.indices.filter { SearchText.hasWords(textPieces[$0].text) }
         let imagePages = pages.filter { $0.imagePath != nil }
-        let garbledPages = pages.filter { $0.garbled != nil }   // rendered too: among `imagePages`
-        var textVectors: [Int: [Float]] = [:]   // by page number
+        let garbledPieces = pages.flatMap { page -> [(number: Int, text: String)] in
+            guard let text = page.garbled else { return [] }
+            let parts = text.count <= 1800 ? [text] : DocExtractor.chunks(text, limit: .max)
+            return parts.map { (page.number, $0) }
+        }   // rendered too: among `imagePages`
+        var textVectors: [Int: [Float]] = [:]   // by passage index (several may share a page)
         var imageVectors: [Embedding] = []
         var garbledVectors: [[Float]] = []
-        if !wordPages.isEmpty || !imagePages.isEmpty {
+        if !wordPieces.isEmpty || !imagePages.isEmpty {
             let worker = try fullWorker()
-            let vectors = try worker.embedTexts(wordPages.map {
-                Prompts.document(title: title, text: String($0.text.prefix(4000)))
+            let vectors = try worker.embedTexts(wordPieces.map {
+                Prompts.document(title: title, text: textPieces[$0].text)
             })
-            textVectors = Dictionary(uniqueKeysWithValues: zip(wordPages.map(\.number), vectors))
+            textVectors = Dictionary(uniqueKeysWithValues: zip(wordPieces, vectors))
             imageVectors = try worker.embedImages(imagePages.compactMap(\.imagePath), budget: options.pageBudget)
-            garbledVectors = try worker.embedTexts(garbledPages.map {
-                Prompts.document(title: title, text: String($0.garbled!.prefix(4000)))
+            garbledVectors = try worker.embedTexts(garbledPieces.map {
+                Prompts.document(title: title, text: $0.text)
             })
         }
         try store.db.transaction {
             // Meaning only: the garbled words are never shown or matched against what you type.
-            for (page, vector) in zip(garbledPages, garbledVectors) {
-                try store.addSegment(file: file.id, kind: .page, modality: .text, loc: Double(page.number), vector: vector)
+            for (piece, vector) in zip(garbledPieces, garbledVectors) {
+                try store.addSegment(file: file.id, kind: .page, modality: .text, loc: Double(piece.number), vector: vector)
             }
-            for page in textPages {
-                try store.addSegment(file: file.id, kind: .page, modality: .text, loc: Double(page.number),
-                                     excerpt: excerpt(page.text), text: page.text, vector: textVectors[page.number])
+            for (index, piece) in textPieces.enumerated() {
+                try store.addSegment(file: file.id, kind: .page, modality: .text, loc: Double(piece.number),
+                                     excerpt: excerpt(piece.text), text: piece.text, vector: textVectors[index])
             }
             for (page, embedding) in zip(imagePages, imageVectors) {
                 try store.addSegment(file: file.id, kind: .pageImage, modality: .image, loc: Double(page.number),
@@ -665,7 +671,7 @@ public final class Indexer {
         }
         let worker = try fullWorker()
         let frameVectors = try worker.embedImages(frames.map(\.path), budget: options.frameBudget)
-        let soundVectors = try worker.embedAudio(sound.map(\.path))
+        let soundVectors: [Embedding] = []   // Qwen3-VL does not encode sound.
         try store.db.transaction {
             for (frame, embedding) in zip(frames, frameVectors) {
                 try store.addSegment(file: file.id, kind: .frame, modality: .image, loc: frame.start,

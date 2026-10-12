@@ -54,7 +54,7 @@ final class AddFoldersController {
                                   add: { [weak self] in self?.add() })
         let sheet = NSWindow(contentViewController: NSHostingController(rootView: view))
         sheet.styleMask = [.titled]
-        sheet.title = code ? "Code Folders" : "Add Folders"
+        sheet.title = code ? "代码文件夹" : "添加文件夹"
         self.sheet = sheet
         choices.startEstimates()
         log("add folders: \(choices.rows.count) to choose from")
@@ -105,17 +105,17 @@ private struct AddFoldersView: View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 16) {
                 if choices.code {
-                    StepTitle(title: "Search your code",
-                              subtitle: "Pick the folders that hold your projects; open one to pick among its repos. "
-                                  + "DigUp reads each once, then what changes. Code is searched on its own: type "
-                                  + "code: in the search panel.")
+                    StepTitle(title: "搜索代码",
+                              subtitle: "选择存放项目的文件夹，也可以展开后挑选具体项目。"
+                                  + "DigUp-ZH 首次读取后只处理有变化的文件。搜索代码时，在搜索框输入"
+                                  + "code: 加上你的描述。")
                 } else {
-                    StepTitle(title: "Add folders to search",
-                              subtitle: "DigUp reads a new folder once, then keeps up with what changes in it. "
-                                  + "Open a folder to pick some of its subfolders.")
+                    StepTitle(title: "添加搜索文件夹",
+                              subtitle: "DigUp-ZH 首次读取新文件夹后，会自动跟进文件变化。"
+                                  + "展开文件夹可只选择其中的部分子文件夹。")
                 }
                 ScrollView {
-                    FolderList(choices: choices, addTitle: "Choose Another Folder…", add: pick)
+                    FolderList(choices: choices, addTitle: "选择其他文件夹…", add: pick)
                     if choices.code { CodeFolderNote().padding(.top, 8) }
                 }
                 .scrollBounceBehavior(.basedOnSize)
@@ -130,9 +130,9 @@ private struct AddFoldersView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer(minLength: 8)
-                Button("Cancel", action: cancel)
+                Button("取消", action: cancel)
                     .keyboardShortcut(.cancelAction)
-                Button("Add", action: add)
+                Button("添加", action: add)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!choices.changesSomething)
             }
@@ -144,15 +144,15 @@ private struct AddFoldersView: View {
     }
 
     private var summary: String {
-        guard choices.changesSomething else { return "Check the folders to add" }
-        guard choices.estimatesDone else { return "Looking at the folders…" }
-        let time = choices.totalSeconds < 1 ? "under a second" : "about \(roughDuration(choices.totalSeconds))"
+        guard choices.changesSomething else { return "请勾选要添加的文件夹" }
+        guard choices.estimatesDone else { return "正在查看文件夹…" }
+        let time = choices.totalSeconds < 1 ? "不到 1 秒" : "约 \(roughDuration(choices.totalSeconds))"
         if choices.code {
-            return "Adds \(time) of indexing and \(roughBytes(choices.totalBytes))"
+            return "粗略估计：\(time)，索引约占 \(roughBytes(choices.totalBytes))"
         }
         let later = choices.totalLaterSeconds
-        return "Adds \(time) of indexing"
-            + (later >= 30 ? ", and \(roughDuration(later)) more for long files" : "")
+        return "首次读取粗略估计：\(time)"
+            + (later >= 30 ? "，长文档剩余部分粗略估计：\(roughDuration(later))" : "")
     }
 }
 
@@ -160,8 +160,8 @@ private struct AddFoldersView: View {
 struct CodeFolderNote: View {
     var body: some View {
         Label {
-            Text("Code search reads source files, notebooks and a repo's own docs. It skips what git ignores, vendored "
-                 + "and generated code, data files, and anything that looks like a key or a password.")
+            Text("代码搜索读取源代码、Notebook 和项目文档。会跳过 Git 忽略的文件、第三方依赖、"
+                 + "自动生成的代码、数据文件，以及疑似密钥或密码的内容。")
                 .fixedSize(horizontal: false, vertical: true)
         } icon: {
             Image(systemName: "info.circle")

@@ -1,39 +1,38 @@
-# Contributing to DigUp
+# 参与 DigUp-ZH
 
-Thanks for your interest in DigUp. It's a small project with one maintainer, so a few notes up front save everyone
-time.
+欢迎提交中文体验、搜索质量、文件兼容性和稳定性改进。较大的新功能建议先开一个 Issue，说明使用场景和预期效果；小修复可以直接提交 Pull Request。
 
-## Open an issue first
+## 提交改动
 
-Please open an issue before you write any code, for a fix as much as for a feature. The same fix or feature may already
-be in progress and not pushed yet. An issue gets you a clear "yes", "not now" or "here's how it should fit" before you
-spend an evening on it. A pull request that arrives without one may be closed with a link back here.
+- 一次改动聚焦一个问题，写清楚触发条件、修改后的行为和验证方法。
+- 先运行 `bash scripts/test.sh`。脚本兼容完整 Xcode 与 Command Line Tools；涉及搜索时补充能复现问题的样例，并比较修改前后的结果。
+- 中文检索要兼顾无空格句子、简繁体、全半角、中文文件名、中英混排、编号和输入法选词。
+- 涉及图片、OCR 或模型时，实际运行指定模型。纯配置检查或模拟结果不能替代真实模型验证。
+- 界面改动需要启动应用，检查主要流程、中文文字是否被截断，以及键盘操作是否正常。
+- 涉及速度、内存或准确率的结论需要记录设备、样本、配置与测量方式。请勿直接沿用上游或模型榜单的数字。
+- 不要提交模型文件、索引、个人资料、日志、密钥、签名材料或构建产物。
 
-## Pull requests
+## 保持本地处理
 
-Once an issue says go:
+文件内容与搜索词在本机处理。新增功能如需联网，应清楚说明何时联网、访问哪里、发送什么，并提供可理解的选择。不得悄悄引入遥测或上传文件内容。
 
-- Keep it to one fix or one feature, with the reason in the description.
-- Make sure `swift test` passes.
-- If it changes what search returns, run the evals in `evals/` before and after (see "Build from source" in the
-  README) and include both results.
-- For speed or memory changes, measure before and after on the same Mac.
+不支持的内容应明确说明。例如当前模型不处理音频，不能把视频画面搜索描述为可以检索视频对白。
 
-DigUp keeps everything on the Mac, so changes that send data elsewhere, like telemetry or cloud services, aren't a fit.
+## 报告问题
 
-## What to expect
+请提供：
 
-DigUp is maintained alongside a day job and other projects, so replies can take a few days, sometimes longer. A quiet
-week means busy, not ignored, and every issue gets an answer, even if it's "not now".
+1. Mac 芯片、内存、macOS 与 DigUp-ZH 版本。
+2. 复现步骤、搜索词、预期结果和实际结果。
+3. 文件类型及能公开的最小样例。截图里请遮挡私人资料。
+4. 是否使用官方完整安装包，以及是否能在断网状态下复现。
 
-Not every pull request will be merged, even good ones. The project has a direction, and some changes won't fit it.
-Others get reworked or rewritten to fit work in progress, and when that happens you'll be credited in the release
-notes.
+日志默认位于 `~/Library/Application Support/DigUp-ZH/index.noindex/`，可能包含文件路径和搜索词。请先检查并删去私人信息，再决定是否附上。
 
-## Reporting a bug
+涉及凭据、个人信息或可被利用的安全问题时，请使用仓库提供的私密安全报告入口；若该入口不可用，请先提交不含敏感细节的问题，约定私密处理方式。
 
-Helpful reports include your Mac (chip and memory), the macOS and DigUp versions, what you did or searched for, and
-what you expected instead. Logs are in `~/Library/Application Support/DigUp/index.noindex` (`app.log` and
-`indexer.log`). They can contain file names and your searches, so look through them before you paste.
+## 许可和署名
 
-For a security problem, please use "Report a vulnerability" on the Security tab instead of a public issue.
+本项目基于 [ARahim3/DigUp](https://github.com/ARahim3/DigUp)，请保留原作者版权、MIT 许可证以及已有第三方声明。新增依赖需要说明来源和许可证，并更新 `Resources/Acknowledgements.txt`。
+
+提交代码表示你有权按本仓库的 MIT 许可证提供该改动。Qwen 模型权重的许可证独立于应用代码，遵循 Apache 2.0。

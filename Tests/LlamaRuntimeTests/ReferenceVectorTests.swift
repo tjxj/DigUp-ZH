@@ -9,22 +9,22 @@ import Testing
 /// and write the reference anew: `DIGUP_WRITE_REFERENCE=1 swift test --filter ReferenceVectorTests`.
 ///
 /// The inputs go in as the indexer hands them over: texts with the app's prompts, a screenshot as PNG (280 tokens), a
-/// photo as JPEG (140, and 70 as a video frame) and a 16 kHz WAV, all read by llama.cpp's own decoders
+/// photo as JPEG (140, and 70 as a video frame), all read by llama.cpp's own decoders
 /// (scripts/testbed/make_reference_inputs.py made the files). Needs the model files; skipped without them.
 @Suite struct ReferenceVectorTests {
     static let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Reference")
     static let modelsThere = (try? LlamaModels.locate())?.media != nil
-    /// Each vector's cosine with its reference must stay at least this: runtimes that agree (mlx-vlm and llama.cpp)
-    /// measure ≥ 0.999, and less is a change people would see in their results.
+    /// Repeatability threshold against this pinned Qwen GGUF implementation; not a comparison with full-precision Qwen.
     static let agreement: Float = 0.999
 
     static let texts: [(name: String, text: String)] = [
         ("query", Prompts.query("payment declined error")),
+        ("query-zh", Prompts.query("员工出差交通费和住宿费怎么报销")),
         ("query-bn", Prompts.query("ইলিশ মাছ রান্না")),
         ("query-ar", Prompts.query("متى تغلق المكتبة")),
         ("document", Prompts.document(title: "Tokyo itinerary", text: "Flight to Tokyo Haneda on November 3. Then the "
                                       + "train to Kamakura to see the Great Buddha, and back for dinner in Shibuya.")),
-        // About 1,800 tokens: past the sliding attention window, so the global layers count as well.
+        // A longer document exercises chunked decoding as well as short-query inference.
         ("document-long", Prompts.document(title: nil, text: (1...60).map {
             "Note \($0): the review moved to room \($0 % 7 + 2) because the projector in the main hall failed again, "
                 + "and the team agreed to send the slides the night before."
@@ -82,10 +82,9 @@ import Testing
         for (input, vector) in zip(texts, try embedder.embedTexts(texts.map(\.text))) { made[input.name] = vector }
         for (name, file, budget) in images {
             let embedding = try embedder.embedImages([folder.appendingPathComponent(file).path], budget: budget)[0]
-            made[name] = try #require(embedding.vector, "\(file): \(embedding.error ?? "no vector")")
+            guard let vector = embedding.vector else { throw LlamaError("\(file): \(embedding.error ?? "no vector")") }
+            made[name] = vector
         }
-        let speech = try embedder.embedAudio([folder.appendingPathComponent("speech.wav").path])[0]
-        made["speech"] = try #require(speech.vector, "speech.wav: \(speech.error ?? "no vector")")
         return made
     }
 

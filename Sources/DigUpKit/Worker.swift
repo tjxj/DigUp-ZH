@@ -26,7 +26,7 @@ public struct WorkerInfo: Codable, Sendable {
 }
 
 /// The four calls every embedding runtime answers: the model linked into this process (llama.cpp, `LlamaRuntime`), or
-/// a worker process speaking JSON lines (`EmbeddingWorker`: the mlx-vlm reference, or `digup worker`).
+/// the bundled `digup worker` process speaking JSON lines (`EmbeddingWorker`).
 /// One thread at a time.
 public protocol Embedder: AnyObject {
     var info: WorkerInfo { get }
@@ -43,8 +43,7 @@ public struct WorkerConfig: Sendable {
     public var arguments: [String]
     public var environment: [String: String] = [:]
     public var log: URL?
-    /// The worker process's priority: user-initiated for the query encoder (App Nap and efficiency cores can slow
-    /// a search from 125 to 650 ms), utility for background indexing.
+    /// The worker process's priority: user-initiated for queries, utility for background indexing.
     public var qos: QualityOfService = .default
 
     public init(executable: URL, arguments: [String]) {
@@ -52,30 +51,20 @@ public struct WorkerConfig: Sendable {
         self.arguments = arguments
     }
 
-    /// The bundled helper (`digup worker`): EmbeddingGemma 2 on llama.cpp, what the app ships with.
+    /// The bundled helper (`digup worker`): Qwen3-VL-Embedding-2B on llama.cpp.
     public static func helper(_ executable: URL) -> WorkerConfig {
         WorkerConfig(executable: executable, arguments: ["worker"])
     }
 
-    /// The Python mlx-vlm worker in `folder` (the repo's `worker/`): the reference runtime for evals.
+    /// Kept as a source-compatible failure for callers of the retired Python entry point.
     public static func python(_ folder: URL) throws -> WorkerConfig {
-        let python = folder.appendingPathComponent(".venv/bin/python")
-        guard FileManager.default.isExecutableFile(atPath: python.path) else {
-            throw WorkerError.notFound("worker environment missing; run: uv sync --project \(folder.path)")
-        }
-        let model = "google/embeddinggemma-2"
-        var config = WorkerConfig(executable: python, arguments: [
-            "-I", folder.appendingPathComponent("digup_worker.py").path, "--model", model,
-        ])
-        config.environment["TOKENIZERS_PARALLELISM"] = "false"
-        // Once the model is on disk, nothing should touch the network.
-        if EmbeddingWorker.modelIsCached(model) { config.environment["HF_HUB_OFFLINE"] = "1" }
-        return config
+        throw WorkerError.failed("旧版 Python worker 已停用。DigUp-ZH 使用内置 Qwen3-VL-Embedding-2B；请通过 DIGUP_MODELS 指定模型目录。")
     }
 
-    /// $DIGUP_WORKER_DIR: a worker folder to use instead of the built-in runtime (mlx-vlm for evals: `worker`).
-    public static func fromEnvironment() throws -> WorkerConfig? {
-        try ProcessInfo.processInfo.environment["DIGUP_WORKER_DIR"].map { try python(URL(fileURLWithPath: $0)) }
+    /// A legacy override must never silently switch the model or its vector format.
+    public static func fromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) throws -> WorkerConfig? {
+        guard environment["DIGUP_WORKER_DIR"] != nil else { return nil }
+        throw WorkerError.failed("DIGUP_WORKER_DIR 已停用，请移除此环境变量。DigUp-ZH 使用内置 Qwen3-VL-Embedding-2B；模型目录可通过 DIGUP_MODELS 指定。")
     }
 }
 
@@ -102,9 +91,8 @@ public struct Embedding: Sendable {
     }
 }
 
-/// Talks to a worker process over stdin/stdout, one JSON line each way (the protocol is in
-/// `worker/digup_worker.py`). The model lives in that separate process so its memory goes back to the OS when it
-/// exits.
+/// Talks to the bundled worker over stdin/stdout, one JSON line each way (see `Sources/digup/WorkerService.swift`).
+/// The model lives in that separate process so its memory goes back to the OS when it exits.
 public final class EmbeddingWorker: Embedder {
     public private(set) var info = WorkerInfo(model: "", revision: "", runtime: "", dtype: "", dim: Vectors.dimension,
                                               textOnly: false, loadSeconds: nil)   // until the worker reports in
@@ -152,6 +140,10 @@ public final class EmbeddingWorker: Embedder {
         guard ready.ready == true, let info = ready.info else {
             throw WorkerError.failed(ready.error ?? "didn't start\(logTail())")
         }
+        guard info.dim == Vectors.dimension else {
+            close()
+            throw WorkerError.failed("模型向量维度不匹配：需要 \(Vectors.dimension)，收到 \(info.dim)。请使用 DigUp-ZH 配套模型。")
+        }
         self.info = info
     }
 
@@ -198,6 +190,7 @@ public final class EmbeddingWorker: Embedder {
             throw WorkerError.failed(reply.error ?? "no vectors")
         }
         let dim = reply.dim ?? Vectors.dimension
+        guard dim == info.dim else { throw WorkerError.failed("模型返回的向量维度与启动时不一致") }
         var floats = [Float](repeating: 0, count: data.count / 4)
         _ = floats.withUnsafeMutableBytes { data.copyBytes(to: $0) }
         guard floats.count == dim * inputs.count else { throw WorkerError.failed("got \(floats.count) floats") }

@@ -2,42 +2,46 @@ import DigUpKit
 import Foundation
 import LlamaRuntime
 
-// DigUp's developer CLI. Every command works on an explicit index folder, so tests never touch the real one.
+// DigUp-ZH's developer CLI. Use --index with a scratch directory for tests.
 
 signal(SIGPIPE, SIG_IGN)   // a dead worker must surface as an error, not kill us
 
 let usage = """
-    digup: search your files by meaning (DigUp developer CLI)
+    digup：DigUp-ZH 本地文件搜索工具
 
-      digup estimate <folder>... [--json]     what would be indexed, and how long the first pass takes
-      digup index <folder>... [--limit N]     sync the index with these folders, embed what's new, then the rest
-                                              of long PDFs and documents
-      digup search <words>... [--kind K,K] [-n 10] [--json]
-                                              "code: <words>" searches the code index
-      digup status                            what's in the index
-      digup eval <queries.json> [-n 10]       recall of known answers (see evals/; "code: …" queries search code)
-      digup index-service <folder>... [--code-root DIR]... [--code-exclude DIR]... [--backfill] [--prune]
-                                              the app's indexing helper (JSON lines; see IndexService)
-      digup worker [--text-only]              the model as a process (JSON lines; the app's query encoder)
+      digup estimate <文件夹>... [--json]       查看可索引文件与粗略耗时
+      digup index <文件夹>... [--limit N]       更新索引，处理新增文件和长文剩余内容
+      digup search <搜索词>... [--kind K,K] [-n 10] [--json]
+                                                用 "code: 搜索词" 搜索代码索引
+      digup status                              查看当前索引状态
+      digup eval <queries.json> [-n 10]         在自备样例上评估检索结果
+      digup index-service <文件夹>... [--code-root DIR]... [--code-exclude DIR]...
+                           [--backfill] [--prune]
+                                                应用使用的后台索引进程
+      digup worker [--text-only]                应用使用的本地模型进程
 
-    Options:
-      --index DIR          index folder (default: ~/Library/Application Support/DigUp/index.noindex)
-      --code               estimate, index or show the code index of these folders (code.sqlite in the index
-                           folder): source files, their repos' docs and notebooks, minus what git ignores
-      --kind K,K           screenshot, image, pdf, doc, audio, video
-      --include-code       also index loose source code and data files as documents (outside code projects)
-      --include-datasets   don't skip folders that look like datasets
-      --exclude DIR        don't index this folder (repeatable)
-      --exclude-ext EXT    don't index files with this extension (repeatable, or comma-separated: "heic,txt")
-      --reindex            drop vectors and embed everything again (after changing settings or model)
-      --zgate Z            how far a meaning match must stand out (default 2.0)
-      --word-weight W      bonus for containing all of the query's words (default 2.0, and for code see Searcher)
-      --shot-tokens N      vision tokens per screenshot (default 280; 560 was 2× slower, no better on real shots)
-      --code-stretch N     characters a stretch of code holds at most (default 1800; 1200 and 3600 lost on the evals)
+    选项：
+      --index DIR          索引目录（默认：~/Library/Application Support/DigUp-ZH/index.noindex）
+      --code               估算、索引或查看选定目录的代码索引（code.sqlite）
+      --kind K,K           文件类型：screenshot, image, pdf, doc, video, code
+      --include-code       将代码项目外的零散源码和数据文件作为文档索引
+      --include-datasets   允许索引被识别为数据集的目录
+      --exclude DIR        排除文件夹，可重复指定
+      --exclude-ext EXT    排除扩展名，可重复指定或用逗号分隔，例如 heic,txt
+      --reindex            清除旧向量并重新整理文件
+      --zgate Z            语义结果阈值，默认 2.0
+      --word-weight W      同时匹配查询关键词时的加分权重，默认 2.0（代码另有规则）
+      --shot-tokens N      截图处理精度：70, 140, 280, 560, 1120，默认 280
+      --code-stretch N     每段代码的最大字符数，默认 1800
+      -h, --help           查看帮助，也可放在子命令后面
 
-    The model: EmbeddingGemma 2 on llama.cpp, from $DIGUP_MODELS (only there, when set), else
-    ~/Library/Application Support/DigUp/Models or the Hugging Face cache. DIGUP_WORKER_DIR=worker uses the
-    mlx-vlm reference worker instead (evals).
+    模型：Qwen3-VL-Embedding-2B，通过 llama.cpp 在本机运行，输出 2048 维向量。
+    文件：DevQuasar 的 Q4_K_M 文字模型及配套 f16 视觉组件，合计约 1.93 GB。
+    支持文字、图片、截图、PDF 和视频画面；不支持音频内容或视频对白。
+
+    设置 DIGUP_MODELS 后只从指定目录读取模型。未设置时依次查找
+    ~/Library/Application Support/DigUp-ZH/Models 和对应版本的 Hugging Face 缓存。
+    旧 DIGUP_WORKER_DIR / Python worker 已停用，设置该变量会明确报错。
     """
 
 struct CLIError: Error, CustomStringConvertible {
@@ -59,7 +63,7 @@ struct Arguments {
         while index < raw.endIndex {
             let argument = raw[index]
             if Self.valued.contains(argument) || Self.repeated.contains(argument) {
-                guard index + 1 < raw.endIndex else { throw CLIError("\(argument) needs a value") }
+                guard index + 1 < raw.endIndex else { throw CLIError("\(argument) 需要一个值") }
                 if Self.repeated.contains(argument) {
                     lists[argument, default: []].append(raw[index + 1])
                 } else {
@@ -77,7 +81,7 @@ struct Arguments {
     }
 
     var indexFolder: URL {
-        URL(fileURLWithPath: ((values["--index"] ?? "~/Library/Application Support/DigUp/index.noindex")
+        URL(fileURLWithPath: ((values["--index"] ?? "~/Library/Application Support/DigUp-ZH/index.noindex")
             as NSString).expandingTildeInPath).standardizedFileURL
     }
 
@@ -101,7 +105,7 @@ struct Arguments {
     }
 
     func folders() throws -> [URL] {
-        guard !positional.isEmpty else { throw CLIError("which folders? e.g. digup index ~/DigUpTestbed") }
+        guard !positional.isEmpty else { throw CLIError("请指定文件夹，例如 digup index ~/DigUpTestbed") }
         return try positional.map {
             let url = Self.folderURL($0)
             guard Self.isFolder(url) else { throw CLIError("not a folder: \($0)") }
@@ -133,8 +137,9 @@ struct Arguments {
         guard let list = values["--kind"] else { return nil }
         return Set(try list.split(separator: ",").map {
             guard let kind = FileKind(rawValue: $0.trimmingCharacters(in: .whitespaces)) else {
-                throw CLIError("unknown kind \($0); use screenshot, image, pdf, doc, audio, video")
+                throw CLIError("未知文件类型 \($0)，可用 screenshot, image, pdf, doc, video, code")
             }
+            guard kind != .audio else { throw CLIError("当前模型不支持音频内容或视频对白，请选择其他文件类型") }
             return kind
         })
     }
@@ -180,19 +185,15 @@ func skippedLine(_ skipped: [String: Int]) -> String {
 
 // MARK: Commands
 
-/// The embedding runtime: llama.cpp in this process, or the worker in $DIGUP_WORKER_DIR (the mlx-vlm reference).
-func makeEmbedder(textOnly: Bool, log: URL, qos: QualityOfService = .default) throws -> any Embedder {
-    if var config = try WorkerConfig.fromEnvironment() {
-        config.log = log
-        config.qos = qos
-        return try EmbeddingWorker(config, textOnly: textOnly)
-    }
+/// The built-in Qwen runtime. A retired worker configuration fails before any model is loaded.
+func makeEmbedder(textOnly: Bool, log: URL, qos _: QualityOfService = .default) throws -> any Embedder {
+    _ = try WorkerConfig.fromEnvironment()
     return try LlamaEmbedder(models: try LlamaModels.locate(), textOnly: textOnly, log: log)
 }
 
-/// `makeEmbedder`'s vector source when it's known without starting it: llama.cpp's always is.
+/// The model fingerprint is known before starting the built-in runtime.
 func embedderSource() -> String? {
-    ProcessInfo.processInfo.environment["DIGUP_WORKER_DIR"] == nil ? LlamaEmbedder.modelInfo.vectorSource : nil
+    LlamaEmbedder.modelInfo.vectorSource
 }
 
 func estimate(_ args: Arguments) throws {
@@ -423,7 +424,7 @@ func indexService(_ args: Arguments) throws -> Int32 {
                                code: codeRoots.isEmpty ? nil : try part(IndexStore.codeFile, options: codeOptions,
                                                                         roots: codeRoots),
                                model: model,
-                               modelReady: { embedderSource() == nil || LlamaModels.complete },
+                               modelReady: { LlamaModels.complete },
                                backfill: args.flags.contains("--backfill"),
                                newFilesLimit: args.values["--new-limit"].flatMap(Int.init) ?? 50,
                                linger: args.values["--linger"].flatMap(Double.init) ?? 60)
@@ -526,6 +527,12 @@ do {
         exit(0)
     }
     let args = try Arguments(raw.dropFirst())
+    if args.flags.contains("--help") || args.flags.contains("-h") {
+        print(usage)
+        exit(0)
+    }
+    // Reject retired runtime overrides even for commands that may not need an embedding yet.
+    _ = try WorkerConfig.fromEnvironment()
     switch command {
     case "estimate": try estimate(args)
     case "index": try index(args)
@@ -539,6 +546,6 @@ do {
         exit(2)
     }
 } catch {
-    FileHandle.standardError.write(Data("error: \(error)\n".utf8))
+    FileHandle.standardError.write(Data("错误：\(error)\n".utf8))
     exit(1)
 }

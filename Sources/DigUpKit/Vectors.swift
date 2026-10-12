@@ -1,9 +1,9 @@
 import Accelerate
 import Foundation
 
-/// Vectors are stored as 768 × float16 (1.5 KB each), kept that way in memory too, and scored as float32.
+/// Qwen vectors are stored as 2048 × float16 (4 KB each), and scored as float32.
 enum Vectors {
-    static let dimension = 768
+    static let dimension = 2048
 
     static func half(_ vector: [Float]) -> Data {
         let halves = vector.map { Float16($0) }

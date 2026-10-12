@@ -2,26 +2,23 @@ import CoreGraphics
 import CoreServices
 import Foundation
 
-/// Seconds of indexing per unit, measured 2026-10-07 on an M4 Pro with llama.cpp (Q8_0), reading files while the
-/// model embeds (a full index of the 365-file testbed: 160 s, per-kind sums below). The app will calibrate these with
-/// a few seconds of real work on first launch.
+/// Conservative planning defaults, not benchmark measurements. Actual time varies with document length,
+/// image size and the Mac. The UI labels these as rough estimates.
 public struct Costs: Sendable {
-    public var image = 0.12              // 140 tokens, decode included
-    public var screenshot = 0.32         // 280 tokens; its OCR (0.24 s) runs alongside and sets the pace
-    public var pdfPage = 0.09            // text pages are cheap, rendered scans cost an image
-    public var docChunk = 0.095
-    public var audioSecond = 0.0089      // a 30 s window every 25 s
-    public var videoSecond = 0.019       // a 70-token keyframe per shot (at most one per 3 s) + the soundtrack
-    /// A stretch of code (2026-10-09: 258 Swift and Objective-C files, 1,245 stretches in 45 s with the model's start).
-    public var codeStretch = 0.037
+    public var image = 1.0
+    public var screenshot = 1.5
+    public var pdfPage = 0.7
+    public var docChunk = 0.5
+    public var audioSecond = 0.0         // Audio is excluded by Rules.
+    public var videoSecond = 0.35        // Visual frames only; no soundtrack embedding.
+    public var codeStretch = 0.5
     public init() {}
 }
 
-/// How big the code index gets: its words (keyword search keeps the text, ~2.4 bytes of index a character of code)
-/// and a vector row for each stretch (measured 2026-10-09: 6.3 MB for 258 files, 2 MB of code, 1,245 stretches).
+/// Rough storage planning: keyword text plus a 2048-dimensional Float16 vector and row overhead per stretch.
 public enum CodeIndexSize {
     static let perCharacter = 2.4
-    static let perStretch = 1600.0
+    static let perStretch = 4300.0
     /// Characters a stretch holds on average, its lines cut where the code breaks (`CodeExtractor.lines`).
     static let charactersPerStretch: Int64 = 1400
 }

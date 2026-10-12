@@ -1,15 +1,14 @@
 import CryptoKit
 import Foundation
 
-/// The EmbeddingGemma 2 files the app runs: ggml-org's Q8_0 GGUF conversion at one pinned revision of the repo (made
-/// from google/embeddinggemma-2 at 914f7f8, the weights the mlx-vlm reference runs). Never the F16 files: the model's
-/// activations overflow float16.
+/// Qwen3-VL-Embedding-2B: the requested Q4_K_M text weights and matching f16 vision projector,
+/// pinned to one DevQuasar conversion revision. Both are required for image and video-frame search.
 ///
 /// The app downloads them on first launch (`ModelDownload`) and the helper loads them (`LlamaModels`); this is what
 /// both agree on.
 public enum ModelFiles {
-    public static let repository = "ggml-org/embeddinggemma-2-GGUF"
-    public static let revision = "bfcd298762cc34d0357ece5ebdd31791a3a374d8"
+    public static let repository = "DevQuasar/Qwen.Qwen3-VL-Embedding-2B-GGUF"
+    public static let revision = "6a1b927414664e0e17dd379913e3416a1ae1b48d"
 
     public struct File: Sendable, Equatable {
         public let name: String
@@ -22,19 +21,19 @@ public enum ModelFiles {
         }
     }
 
-    /// The text model (310 MB): all that queries need.
-    public static let text = File(name: "embeddinggemma-2-Q8_0.gguf", bytes: 309_855_456,
-                                  sha256: "2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135")
-    /// The image and audio encoders (555 MB).
-    public static let media = File(name: "mmproj-embeddinggemma-2-Q8_0.gguf", bytes: 554_821_024,
-                                   sha256: "c4a8a52691ecef40618438928bdf9e68379b854e24166f292592353db0aab64f")
+    /// The text model (about 1.11 GB): all that queries need.
+    public static let text = File(name: "Qwen.Qwen3-VL-Embedding-2B.Q4_K_M.gguf", bytes: 1_107_410_528,
+                                  sha256: "42a4ebc629ecc6514649e12b1529b857f54900273bb854f853c970fb90edd09d")
+    /// The vision projector (about 819 MB). This model has no audio encoder.
+    public static let media = File(name: "mmproj-Qwen.Qwen3-VL-Embedding-2B.f16.gguf", bytes: 819_395_136,
+                                   sha256: "3f89a7768ffa6606935319f71bf56bb71871249ba549bf1080a0caea7a088613")
     /// In download order.
     public static let all = [text, media]
     public static let totalBytes = all.reduce(0) { $0 + $1.bytes }
 
     /// Where the app keeps them.
     public static let installed = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support/DigUp/Models")
+        .appendingPathComponent("Library/Application Support/DigUp-ZH/Models")
 
     /// The pinned revision's folder in the Hugging Face cache (`hf download` puts the files there): `$HF_HUB_CACHE`,
     /// `$HF_HOME/hub`, or `~/.cache/huggingface/hub`.
@@ -53,12 +52,16 @@ public enum ModelFiles {
         return size == file.bytes ? url : nil
     }
 
-    /// The files that aren't in `folder` yet. Only verified files get their final name, so being there is enough.
+    /// Files missing or truncated in `folder`. Downloaded and packaged files are also SHA-256 checked before use.
     public static func missing(in folder: URL) -> [File] {
-        all.filter { !FileManager.default.fileExists(atPath: folder.appendingPathComponent($0.name).path) }
+        all.filter {
+            let path = folder.appendingPathComponent($0.name).resolvingSymlinksInPath().path
+            let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber)?.int64Value
+            return size != $0.bytes
+        }
     }
 
-    /// The SHA-256 of a file as lowercase hex, read in 8 MB pieces (a 555 MB file takes about half a second).
+    /// The SHA-256 of a file as lowercase hex, read in 8 MB pieces.
     public static func sha256(of url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }

@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 
 /// Text the way keyword search keeps it and matches it, so that a word is found however it was typed or extracted.
 public enum SearchText {
@@ -6,6 +7,10 @@ public enum SearchText {
     /// two spellings of "ো" become one), invisible formatting characters dropped (Bengali's zero-width joiners,
     /// direction marks), and Arabic the way people type it: no tatweel, no short-vowel marks, one alef.
     public static func normalized(_ text: String) -> String {
+        simplified(compatible(text))
+    }
+
+    private static func compatible(_ text: String) -> String {
         let compatible = text.precomposedStringWithCompatibilityMapping
         var scalars = String.UnicodeScalarView()
         for scalar in compatible.unicodeScalars {
@@ -22,6 +27,71 @@ public enum SearchText {
             }
         }
         return String(scalars)
+    }
+
+    private static func simplified(_ plain: String) -> String {
+        // This is a search key only. The index and previews retain the author's original spelling.
+        return containsHan(plain)
+            ? plain.applyingTransform(StringTransform("Traditional-Simplified"), reverse: false) ?? plain : plain
+    }
+
+    /// Han characters do not need spaces between words. Index them separately; query each word as an FTS phrase.
+    /// That also finds unfamiliar names and words inside compounds without depending on an index-time dictionary.
+    static func indexed(_ text: String) -> String {
+        let text = normalized(text)
+        guard containsHan(text) else { return text }
+        var out = ""
+        out.reserveCapacity(text.utf8.count * 2)
+        for character in text {
+            if isHan(character) { out += " " + String(character) + " " }
+            else { out.append(character) }
+        }
+        return out
+    }
+
+    public static func containsHan(_ text: String) -> Bool { text.contains(where: isHan) }
+
+    static func isHan(_ character: Character) -> Bool {
+        character.unicodeScalars.contains {
+            switch $0.value {
+            case 0x3007, 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF,
+                 0x20000...0x2FFFF, 0x30000...0x323AF: true
+            default: false
+            }
+        }
+    }
+
+    /// System Chinese word segmentation, with explicit Han/Latin boundaries for “模型Qwen3”. Latin identifiers
+    /// such as HT-2026-001 remain one term, so their parts must occur together instead of matching arbitrary IDs.
+    static func words(_ text: String) -> [String] {
+        let text = normalized(text).lowercased()
+        var words: [String] = [], run = "", han = false
+        func flush() {
+            guard !run.isEmpty else { return }
+            if han {
+                let tokenizer = NLTokenizer(unit: .word)
+                tokenizer.string = run
+                tokenizer.setLanguage(.simplifiedChinese)
+                tokenizer.enumerateTokens(in: run.startIndex..<run.endIndex) { range, _ in
+                    words.append(String(run[range]))
+                    return true
+                }
+            } else {
+                let pattern = #"[\p{L}\p{M}\p{N}]+(?:[-_./:][\p{L}\p{M}\p{N}]+)*"#
+                let regex = try! NSRegularExpression(pattern: pattern)
+                for match in regex.matches(in: run, range: NSRange(run.startIndex..., in: run)) {
+                    if let range = Range(match.range, in: run) { words.append(String(run[range])) }
+                }
+            }
+            run = ""
+        }
+        for character in text {
+            let nextHan = isHan(character)
+            if nextHan != han { flush(); han = nextHan }
+            run.append(character)
+        }
+        flush()
+        return words
     }
 
     /// True for words of scripts that attach endings to words (Bengali, Hindi, Arabic): keyword search matches them as
@@ -51,18 +121,25 @@ public enum SearchText {
         guard !needle.isEmpty else { return [] }
         let folded = Folded(text)
         let haystack = folded.text as NSString
+        // PDF layout and OCR often wrap a Chinese word onto two lines. FTS phrases already ignore that spacing;
+        // let highlighting span it too, while its returned range still refers to the unchanged original text.
+        let hanPhrase = needle.allSatisfy(isHan)
+        let pattern = hanPhrase ? needle.map { NSRegularExpression.escapedPattern(for: String($0)) }
+            .joined(separator: #"\s*"#) : needle
+        let options: String.CompareOptions = hanPhrase ? [.regularExpression] : [.caseInsensitive, .diacriticInsensitive]
         let prefix = inflects(word)
         var found: [Range<String.Index>] = []
         var searchRange = NSRange(location: 0, length: haystack.length)
         while found.count < 500 {
-            let hit = haystack.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive], range: searchRange)
+            let hit = haystack.range(of: pattern, options: options, range: searchRange)
             guard hit.location != NSNotFound else { break }
             searchRange = NSRange(location: hit.upperBound, length: haystack.length - hit.upperBound)
             guard var range = folded.original(hit) else { continue }
-            if range.lowerBound > text.startIndex, isWordCharacter(text[text.index(before: range.lowerBound)]) {
+            if !isHan(needle.first!), range.lowerBound > text.startIndex,
+               isWordCharacter(text[text.index(before: range.lowerBound)]) {
                 continue
             }
-            if range.upperBound < text.endIndex, isWordCharacter(text[range.upperBound]) {
+            if !isHan(needle.last!), range.upperBound < text.endIndex, isWordCharacter(text[range.upperBound]) {
                 guard prefix else { continue }
                 var end = range.upperBound
                 while end < text.endIndex, isWordCharacter(text[end]) { end = text.index(after: end) }
@@ -77,21 +154,27 @@ public enum SearchText {
     /// One line from `text` around the first of `terms` it has, the terms marked « » as SQLite's snippet() marks them:
     /// the excerpt of a keyword match, from the text as it's written. Nil when none of the terms is in it.
     public static func snippet(_ text: String, terms: [String], words: Int = 12) -> String? {
-        let marks = terms.flatMap { matches(of: $0, in: text) }.sorted { $0.lowerBound < $1.lowerBound }
+        var marks: [Range<String.Index>] = terms.flatMap { matches(of: $0, in: text) }
+        marks.sort { left, right in
+            if left.lowerBound == right.lowerBound { return left.upperBound > right.upperBound }
+            return left.lowerBound < right.lowerBound
+        }
         guard let first = marks.first else { return nil }
         // About `words` words, starting a few before the first match.
-        var start = first.lowerBound, before = 0
-        while start > text.startIndex, before < words / 3 {
+        var start = first.lowerBound, before = 0, beforeCharacters = 0
+        while start > text.startIndex, before < words / 3, beforeCharacters < max(12, words * 4) {
             start = text.index(before: start)
+            beforeCharacters += 1
             if text[start].isWhitespace, start < first.lowerBound, !text[text.index(after: start)].isWhitespace {
                 before += 1
             }
         }
         if start > text.startIndex || text[start].isWhitespace { start = text.index(after: start) }
-        var end = first.upperBound, after = 0
-        while end < text.endIndex, after < words - before {
+        var end = first.upperBound, after = 0, afterCharacters = 0
+        while end < text.endIndex, after < words - before, afterCharacters < max(24, words * 8) {
             if text[end].isWhitespace { after += 1 }
             end = text.index(after: end)
+            afterCharacters += 1
         }
         var out = start > text.startIndex ? "…" : ""
         var cursor = start
@@ -105,7 +188,7 @@ public enum SearchText {
     }
 
     private static func isWordCharacter(_ character: Character) -> Bool {
-        character.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
+        !isHan(character) && character.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
     }
 
     /// `text` normalized one character at a time, remembering where each piece came from.
@@ -118,15 +201,32 @@ public enum SearchText {
         init(_ source: String) {
             self.source = source
             var text = "", origin: [String.Index] = []
+            var pieces: [Character: String] = [:]
             var index = source.startIndex
             for character in source {
-                let piece = normalized(String(character)).lowercased()
+                let piece = pieces[character] ?? compatible(String(character)).lowercased()
+                pieces[character] = piece
                 text += piece
                 origin += Array(repeating: index, count: piece.utf16.count)
                 index = source.index(after: index)
             }
-            self.text = text
-            self.origin = origin
+            // ICU's Chinese conversion uses context: 著 alone becomes 着, but 著作 keeps 著. Convert the full text
+            // exactly as indexing does, then map each converted character back to the pre-conversion character.
+            // Han simplification substitutes characters; UTF-16 lengths can still differ for supplementary Han.
+            let converted = simplified(text)
+            var convertedOrigin: [String.Index] = [], offset = 0
+            if converted.count == text.count {
+                for (before, after) in zip(text, converted) {
+                    convertedOrigin += Array(repeating: origin[offset], count: after.utf16.count)
+                    offset += before.utf16.count
+                }
+                self.text = converted
+                self.origin = convertedOrigin
+            } else {
+                // Preserve a reliable map if a future OS adds a length-changing conversion.
+                self.text = text
+                self.origin = origin
+            }
         }
 
         /// The characters of the source that `range` (in `text`) came from.
@@ -148,7 +248,7 @@ public enum Landmark {
         guard page > 1, texts.count >= page else { return nil }
         let target = texts[page - 1]
         let before = texts.prefix(page - 1).map { SearchText.normalized($0).lowercased() }
-        let onPage = words.filter { $0.count >= 3 }.compactMap { word in
+        let onPage = words.filter { $0.count >= 3 || SearchText.containsHan($0) }.compactMap { word in
             SearchText.matches(of: word, in: target).first.map { String(target[$0]) }
         }
         return onPage.first { word in !before.contains { $0.contains(SearchText.normalized(word).lowercased()) } }

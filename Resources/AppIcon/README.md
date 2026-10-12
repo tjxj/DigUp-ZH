@@ -1,22 +1,24 @@
-# DigUp's icon: "One space"
+# DigUp-ZH 图标：寻文
 
-Four tiles, for what DigUp searches (text, pictures, sound, video), around an amber D with the find glowing in it.
-Moss palette.
+深青色底板上，一枚米白色放大镜圈住“文”字，右上角是一枚朱红“中”字小印章。图形使用路径绘制，不依赖字体，也不含外部图片。
 
-- `appicon.svg`: the app icon (1024 × 1024, macOS icon grid). `../AppIcon.icns` holds it at 64 px and up.
-- `appicon-small.svg`: the same without the glyphs inside the tiles, which turn to noise when small. `../AppIcon.icns`
-  holds it at 16 and 32 px.
-- `AppIcon.icon`: the same design as layers for macOS 26 and later (an Icon Composer document: a #13201A fill, the
-  tiles, the D). `build.sh` compiles it into `Assets.car` with `actool`; `Info.plist`'s `CFBundleIconName` points at
-  it. Without it macOS 26 draws the `.icns` shrunk inside a gray square. Older macOS uses the `.icns`
-  (`CFBundleIconFile`; untested there).
-- `menubar.svg`: the menubar mark, a boxed D. The app draws it in code from the same geometry
-  (`StatusIcon` in `Sources/DigUpApp/StatusMenu.swift`), with the indexing ring in place of the box.
+| 文件 | 用途 |
+| --- | --- |
+| `appicon.svg` | 1024 × 1024 主图标，可编辑的原始文件 |
+| `appicon-small.svg` | 16、32 像素简化版：加粗主体、去掉小印章里的笔画 |
+| `appicon-1024.png`、`appicon-256.png`、`appicon-32.png` | 可直接预览和复用的图片 |
+| `../AppIcon.icns` | macOS 应用图标，包含 16 到 1024 像素的 10 种图像表示 |
+| `AppIcon.icon/` | 供支持 Icon Composer 的构建环境使用的分层版本 |
+| `menubar.svg` | 单色菜单栏图标参考；应用中的菜单栏图案由界面代码绘制 |
 
-To rebuild `AppIcon.icns` after editing a source: render both SVGs to an iconset (`icon_16x16.png` and
-`icon_16x16@2x.png`/`icon_32x32.png` from `appicon-small.svg` at 16 and 32 px; the other eight sizes, 64 to 1024 px,
-from `appicon.svg`) with a renderer that draws SVG blur filters (a browser or WebKit; macOS's own SVG renderer drops
-the soft shadows), then `iconutil -c icns AppIcon.iconset -o ../AppIcon.icns`.
+颜色：深青 `#103F43`、米白 `#F5EBD6`、朱红 `#D9684F`。
 
-Colors: tile #13201A; tiles #D5E6BB, #A2C78E, #64976B, #356652; the D #FFD166 → #F2A22A with a #13201A outline; the
-find #FFF6DA.
+在项目根目录运行：
+
+```sh
+swift scripts/make-zh-icon.swift
+```
+
+脚本用 macOS 自带的图形工具渲染 SVG，生成 PNG 和 `Resources/AppIcon.icns`，无需下载图片或安装字体。临时文件会在完成后清理。
+
+DigUp-ZH 图标为本项目重新设计，按仓库的 MIT 许可证提供。保留原有可编辑图标目录结构，方便继续修改。

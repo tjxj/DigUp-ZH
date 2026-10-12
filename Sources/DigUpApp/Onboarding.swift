@@ -35,7 +35,7 @@ final class OnboardingController: NSObject, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
-        window.title = "Welcome to DigUp"
+        window.title = "欢迎使用 DigUp-ZH"
         window.isReleasedWhenClosed = false
         window.delegate = self
         state.close = { [weak self] in self?.close() }
@@ -126,7 +126,7 @@ final class OnboardingState {
             return []
         }
         let home = FileManager.default.homeDirectoryForCurrentUser
-        return ["Desktop", "Documents", "Downloads", "Pictures", "Movies", "Music"]
+        return ["Desktop", "Documents", "Downloads", "Pictures", "Movies"]
             .map { AppSettings.folderURL(home.appendingPathComponent($0).path) }
             .filter(AppSettings.isFolder)
     }
@@ -190,7 +190,7 @@ final class OnboardingState {
     }
 
     func skipFolders(from window: NSWindow?) {
-        app.pickFolders(for: window, prompt: "Skip") { [weak self] picked in
+        app.pickFolders(for: window, prompt: "跳过") { [weak self] picked in
             guard !picked.isEmpty else { return }
             self?.folders.skip(picked)
         }
@@ -223,7 +223,7 @@ struct OnboardingView: View {
         VStack(spacing: 0) {
             Group {
                 switch state.step {
-                case .welcome: WelcomeStep()
+                case .welcome: WelcomeStep(download: state.download)
                 case .folders: FoldersStep(state: state)
                 case .code: CodeStep(state: state)
                 case .shortcut: ShortcutStep(state: state)
@@ -260,7 +260,7 @@ struct OnboardingView: View {
                     .lineLimit(1)
             }
             if state.step != .welcome, state.step != .ready {
-                Button("Back") { state.back() }
+                Button("上一步") { state.back() }
             }
             Button(continueTitle) { state.next() }
                 .keyboardShortcut(.defaultAction)
@@ -273,26 +273,26 @@ struct OnboardingView: View {
 
     private var continueTitle: String {
         switch state.step {
-        case .welcome: "Get Started"
-        case .folders: "Continue"
-        case .code: "Continue"
-        case .shortcut: "Continue"
-        case .ready: "Done"
+        case .welcome: "开始使用"
+        case .folders: "继续"
+        case .code: "继续"
+        case .shortcut: "继续"
+        case .ready: "完成"
         }
     }
 
     private var codeSummary: String {
-        guard !state.codeFolders.roots.isEmpty else { return "Check the folders with your code" }
-        guard state.codeFolders.estimatesDone else { return "Looking at your code…" }
+        guard !state.codeFolders.roots.isEmpty else { return "请选择存放代码的文件夹" }
+        guard state.codeFolders.estimatesDone else { return "正在查看代码…" }
         let seconds = state.codeFolders.totalSeconds
-        return (seconds < 1 ? "Under a second" : "About \(roughDuration(seconds))")
+        return "粗略估计：" + (seconds < 1 ? "不到 1 秒" : "\(roughDuration(seconds))")
             + ", \(roughBytes(state.codeFolders.totalBytes))"
     }
 
     private var foldersSummary: String {
-        guard !state.folders.roots.isEmpty else { return "Choose at least one folder" }
-        guard state.folders.estimatesDone else { return "Looking at your folders…" }
-        return "First pass: about \(roughDuration(state.folders.totalSeconds))"
+        guard !state.folders.roots.isEmpty else { return "请至少选择一个文件夹" }
+        guard state.folders.estimatesDone else { return "正在查看文件夹…" }
+        return "首次读取粗略估计：\(roughDuration(state.folders.totalSeconds))"
     }
 }
 
@@ -309,11 +309,11 @@ private struct StepDots: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Step \(current + 1) of \(count)")
+        .accessibilityLabel("第 \(current + 1) 步，共 \(count) 步")
     }
 }
 
-/// The model download, small: "Downloading the model · 42% · about 1 min left", then "Model ready".
+/// The model download, small: "Downloading the model · 42% · about 1 min left", then "模型已就绪".
 struct DownloadStatus: View {
     let download: ModelDownload
 
@@ -322,20 +322,20 @@ struct DownloadStatus: View {
             switch download.phase {
             case .ready:
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text("Model ready")
+                Text("模型已就绪")
             case .failed(let message):
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                 Text(message).lineLimit(1)
-                Button("Try Again") { download.start() }.controlSize(.small)
+                Button("重试") { download.start() }.controlSize(.small)
             case .needed:
                 Image(systemName: "arrow.down.circle").foregroundStyle(.secondary)
-                Text("Model not downloaded")
-                Button("Download") { download.start() }.controlSize(.small)
+                Text("模型尚未下载")
+                Button("下载") { download.start() }.controlSize(.small)
             default:
                 ProgressView(value: download.fraction)
                     .progressViewStyle(.circular)
                     .controlSize(.small)
-                Text("Downloading the model · \(download.progressText)")
+                Text("正在下载模型 · \(download.progressText)")
                     .lineLimit(1)
             }
         }
@@ -345,26 +345,28 @@ struct DownloadStatus: View {
 }
 
 private struct WelcomeStep: View {
+    let download: ModelDownload
+
     var body: some View {
         VStack(spacing: 0) {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
                 .frame(width: 96, height: 96)
                 .shadow(color: Brand.moss.opacity(0.35), radius: 14, y: 6)
-            Text("DigUp")
+            Text("DigUp-ZH")
                 .font(.system(size: 30, weight: .bold))
                 .padding(.top, 10)
-            Text("Describe it. Dig it up.")
+            Text("用中文描述，找回你的文件。")
                 .font(.system(size: 16))
                 .foregroundStyle(.secondary)
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 16) {
-                Feature(symbol: "camera.viewfinder", title: "Screenshots and photos",
-                        example: "“that payment error”, “the zebra”, “whiteboard from Tuesday”")
-                Feature(symbol: "doc.text", title: "PDFs and documents",
-                        example: "“the clause about pets in the lease”, “flight receipt”")
-                Feature(symbol: "waveform", title: "Moments inside audio and video",
-                        example: "“where they talk about sleep”, “the part with the drums”")
+                Feature(symbol: "camera.viewfinder", title: "截图与照片",
+                        example: "“支付失败截图”“草地上的斑马”“周二的白板笔记”")
+                Feature(symbol: "doc.text", title: "PDF 与文档",
+                        example: "“租房合同里的宠物条款”“机票报销凭证”")
+                Feature(symbol: "film", title: "视频中的画面",
+                        example: "“海边奔跑的小狗”“会议中展示图表的画面”")
             }
             .padding(.top, 30)
             HStack(alignment: .top, spacing: 12) {
@@ -372,8 +374,9 @@ private struct WelcomeStep: View {
                     .font(.system(size: 18))
                     .foregroundStyle(.secondary)
                     .frame(width: 30)
-                Text("Everything is indexed and searched on this Mac. DigUp downloads its AI model (865 MB) once; "
-                     + "after that it works offline, and nothing you index ever leaves your Mac.")
+                Text(download.isReady
+                     ? "模型已就绪，可离线使用。全部读取与搜索都在本机完成，文件内容不会上传。支持文字、图片和视频画面，不理解音频或视频对白。"
+                     : "全部读取与搜索都在本机完成。首次下载 Qwen3-VL-Embedding-2B 及视觉组件（约 1.93 GB）后，即可离线使用。文件内容不会上传；支持文字、图片和视频画面，不理解音频或视频对白。")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -428,12 +431,12 @@ private struct FoldersStep: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            StepTitle(title: "What should DigUp search?",
-                      subtitle: "Pick folders, or open one to pick some of its subfolders. You can change this "
-                          + "anytime in Settings.")
+            StepTitle(title: "你想搜索哪些文件夹？",
+                      subtitle: "选择整个文件夹，或展开后只勾选部分子文件夹。以后可以随时在"
+                          + "设置中调整。")
             ScrollView {
                 VStack(spacing: 6) {
-                    FolderList(choices: state.folders, addTitle: "Add Folder…") {
+                    FolderList(choices: state.folders, addTitle: "添加文件夹…") {
                         state.addFolders(from: NSApp.keyWindow)
                     }
                     SkipChoices(state: state)
@@ -442,8 +445,8 @@ private struct FoldersStep: View {
             .scrollBounceBehavior(.basedOnSize)
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "info.circle").foregroundStyle(.secondary)
-                Text("macOS will ask before DigUp can read folders like Desktop, Documents and Downloads. "
-                     + "DigUp only reads files: it never changes, moves or uploads them.")
+                Text("读取桌面、文稿、下载等文件夹前，macOS 会向你申请授权。"
+                     + "DigUp-ZH 仅读取文件，不会修改、移动或上传文件。")
                     .fixedSize(horizontal: false, vertical: true)
             }
             .font(.system(size: 11))
@@ -474,25 +477,25 @@ private struct SkipChoices: View {
                             Image(systemName: "minus.circle.fill").foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
-                        .help("Search this folder again")
+                        .help("重新搜索此文件夹")
                     }
                     .font(.system(size: 12))
                 }
                 Button {
                     state.skipFolders(from: NSApp.keyWindow)
                 } label: {
-                    Label("Skip a Folder…", systemImage: "plus")
+                    Label("跳过文件夹…", systemImage: "plus")
                 }
                 .controlSize(.small)
                 HStack(spacing: 8) {
-                    Text("File types")
-                    TextField("Extensions", text: $state.skippedTypesText, prompt: Text("e.g. heic, txt"))
+                    Text("文件类型")
+                    TextField("扩展名", text: $state.skippedTypesText, prompt: Text("例如 heic, txt"))
                         .labelsHidden()
                         .controlSize(.small)
                         .onSubmit { state.folders.setTypes(state.skippedTypesText) }
                 }
                 .font(.system(size: 12))
-                Text("Code, keys, certificates, hidden folders, app bundles and caches are always skipped.")
+                Text("普通文件搜索会跳过代码、密钥、证书、隐藏文件夹、应用与缓存。代码可在下一步单独开启。")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -500,7 +503,7 @@ private struct SkipChoices: View {
             .padding(.top, 8)
             .padding(.leading, 4)
         } label: {
-            Text("Skip some folders or file types")
+            Text("跳过部分文件夹或文件类型")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
         }
@@ -519,17 +522,17 @@ private struct CodeStep: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            StepTitle(title: "Search your code too?",
-                      subtitle: "DigUp can find code by what it does: type code: in the search panel, as in "
-                          + "“code: retry with backoff”. It gets an index of its own and never shows up in other "
-                          + "searches. You can turn it on later in Settings → Code.")
-            SwitchRow(title: "Search my code", detail: "Off unless you turn it on.", isOn: $state.searchCode)
+            StepTitle(title: "也要搜索代码吗？",
+                      subtitle: "用中文描述代码的用途即可搜索。在搜索框输入 code:，例如"
+                          + "“code: 请求失败后逐步延时重试”。代码会单独建立索引，"
+                          + "仅在代码搜索中显示。也可以稍后在“设置 → 代码”中开启。")
+            SwitchRow(title: "开启代码搜索", detail: "默认关闭，由你选择是否开启。", isOn: $state.searchCode)
                 .padding(14)
                 .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.04)))
             if state.searchCode {
                 ScrollView {
                     VStack(spacing: 6) {
-                        FolderList(choices: state.codeFolders, addTitle: "Add Folder…") {
+                        FolderList(choices: state.codeFolders, addTitle: "添加文件夹…") {
                             state.addCodeFolders(from: NSApp.keyWindow)
                         }
                         CodeFolderNote().padding(.top, 4)
@@ -537,8 +540,8 @@ private struct CodeStep: View {
                 }
                 .scrollBounceBehavior(.basedOnSize)
                 HStack {
-                    Text("Open code in")
-                    Picker("Open code in", selection: Binding(get: { CodeEditor.current.id },
+                    Text("代码打开方式")
+                    Picker("代码打开方式", selection: Binding(get: { CodeEditor.current.id },
                                                               set: { state.app.setCodeEditor($0) })) {
                         ForEach(CodeEditor.installed) { editor in Text(editor.name).tag(editor.id) }
                         Text(CodeEditor.defaultApp.name).tag(CodeEditor.defaultApp.id)
@@ -560,17 +563,17 @@ private struct ShortcutStep: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            StepTitle(title: "Open DigUp from anywhere",
-                      subtitle: "Press the shortcut in any app, describe what you're looking for, and press Return.")
+            StepTitle(title: "随时打开 DigUp-ZH",
+                      subtitle: "在任意应用中按下快捷键，描述想找的内容，选择结果后按回车打开。")
             ShortcutRecorder(combo: state.model.hotkey, apply: { state.app.setHotkey($0) },
                              listening: { state.app.hotkeyRecording($0) }, capSize: 20)
                 .padding(.top, 34)
             Group {
                 if state.hotkeyWorked {
-                    Label("That's it. It works from any app.", systemImage: "checkmark.circle.fill")
+                    Label("设置成功，在任何应用中都能使用。", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                 } else if let hotkey = state.model.hotkey {
-                    Text("Try it now: press \(hotkey.display).")
+                    Text("现在试试：按下 \(hotkey.display)。")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -578,15 +581,15 @@ private struct ShortcutStep: View {
             .padding(.top, 16)
             .animation(.default, value: state.hotkeyWorked)
             VStack(alignment: .leading, spacing: 9) {
-                Text("IN THE SEARCH PANEL")
+                Text("搜索面板快捷操作")
                     .font(.system(size: 10, weight: .semibold))
                     .tracking(0.6)
                     .foregroundStyle(.secondary)
-                KeyTip(caps: ["↩"], text: "Open the file")
-                KeyTip(caps: ["⌘", "↩"], text: "Show it in Finder")
-                KeyTip(caps: ["Space"], text: "Quick Look, after arrowing to a result")
-                KeyTip(caps: ["⌘", "C"], text: "Copy the file, to paste anywhere")
-                KeyTip(caps: ["esc"], text: "Close")
+                KeyTip(caps: ["↩"], text: "打开文件")
+                KeyTip(caps: ["⌘", "↩"], text: "在访达中显示")
+                KeyTip(caps: ["Space"], text: "用方向键选中结果后，按空格快速预览")
+                KeyTip(caps: ["⌘", "C"], text: "复制文件，可粘贴到其他位置")
+                KeyTip(caps: ["esc"], text: "关闭")
             }
             .padding(18)
             .frame(maxWidth: 340, alignment: .leading)
@@ -618,7 +621,7 @@ private struct ReadyStep: View {
                 .font(.system(size: 60))
                 .foregroundStyle(Brand.gradient)
                 .padding(.top, 8)
-            Text("You're all set")
+            Text("准备好了")
                 .font(.system(size: 26, weight: .bold))
                 .padding(.top, 14)
             Text(progressNote)
@@ -629,7 +632,7 @@ private struct ReadyStep: View {
                 .frame(maxWidth: 470)
                 .padding(.top, 8)
             VStack(alignment: .leading, spacing: 16) {
-                SwitchRow(title: "Open DigUp when you log in", detail: "So the shortcut always works.",
+                SwitchRow(title: "登录时打开 DigUp-ZH", detail: "登录后随时使用搜索快捷键。",
                           isOn: $state.launchAtLogin)
                 Divider()
                 SwitchRow(title: AppSettings.batteryTitle, detail: AppSettings.batteryDetail,
@@ -641,7 +644,7 @@ private struct ReadyStep: View {
             .padding(.top, 28)
             HStack(spacing: 8) {
                 Image(systemName: "sparkle.magnifyingglass")
-                Text("DigUp lives in the menu bar, which shows how indexing is going.")
+                Text("DigUp-ZH 常驻菜单栏，可随时查看处理进度。")
             }
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
@@ -652,15 +655,15 @@ private struct ReadyStep: View {
 
     private var progressNote: String {
         let seconds = state.folders.totalSeconds, later = state.folders.totalLaterSeconds
-        let time = seconds > 0 ? " (about \(roughDuration(seconds)) on this Mac)" : ""
-        let rest = later >= 30 ? " Long PDFs and documents get their first pages in that time, and the rest "
-            + "afterwards (about \(roughDuration(later)) more)." : ""
+        let time = seconds > 0 ? "（粗略估计 \(roughDuration(seconds))，实际以处理进度为准）" : ""
+        let rest = later >= 30 ? "较长的 PDF 和文档会先处理开头的内容，"
+            + "随后继续读取剩余内容（粗略估计还需 \(roughDuration(later))）。" : ""
         if state.download.isReady {
-            return "DigUp is reading your folders\(time), newest files first. You can search right away; "
-                + "results fill in as it goes." + rest
+            return "DigUp-ZH 正在读取文件夹\(time)，优先处理最新文件。现在就能开始搜索，"
+                + "处理完成的文件会逐步加入结果。" + rest
         }
-        return "DigUp starts reading your folders\(time) once the model has downloaded "
-            + "(\(state.download.progressText)). Until then, search finds files by name." + rest
+        return "模型下载完成后，DigUp-ZH 将开始读取文件夹\(time)"
+            + "（\(state.download.progressText)）。下载期间可按文件名搜索。" + rest
     }
 }
 

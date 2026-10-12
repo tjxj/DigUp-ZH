@@ -20,7 +20,7 @@ public struct FileRecord: Sendable {
 public final class IndexStore {
     public let directory: URL
     public let db: Database
-    static let schemaVersion: Int64 = 5
+    static let schemaVersion: Int64 = 6
 
     /// Keyword search's tokenizer. Marks (M*) count as letters, so Bengali vowel signs and Arabic harakat stay inside
     /// their words: by default SQLite splits on them ("কলকাতায়" became "কলক", "ত", "য").
@@ -34,9 +34,10 @@ public final class IndexStore {
     public var scope: [String]? {
         didSet {
             guard let scope else { (scopeSQL, scopeValues) = ("", []); return }
-            scopeSQL = scope.isEmpty ? " AND 0"
-                : " AND (" + scope.map { _ in "(path >= ? AND path < ?)" }.joined(separator: " OR ") + ")"
-            scopeValues = scope.flatMap { root -> [SQLValue] in
+            let roots = Self.rootAliases(scope)
+            scopeSQL = roots.isEmpty ? " AND 0"
+                : " AND (" + roots.map { _ in "(path >= ? AND path < ?)" }.joined(separator: " OR ") + ")"
+            scopeValues = roots.flatMap { root -> [SQLValue] in
                 let prefix = root.hasSuffix("/") ? root : root + "/"
                 return [.text(prefix), .text(prefix + "\u{10FFFF}")]
             }
@@ -44,6 +45,13 @@ public final class IndexStore {
     }
     private var scopeSQL = ""
     private var scopeValues: [SQLValue] = []
+
+    /// Foundation may spell /private/tmp as /tmp while directory enumeration returns the real path.
+    /// Keep both spellings, including the original for unplugged volumes whose real path is unavailable.
+    private static func rootAliases(_ roots: [String]) -> [String] {
+        Array(Set(roots.flatMap { [$0, URL(fileURLWithPath: $0).standardizedFileURL.path,
+                                     FolderSelection.realPath($0)] })).sorted()
+    }
 
     /// The main index's file in the index folder.
     public static let mainFile = "index.sqlite"
@@ -88,6 +96,7 @@ public final class IndexStore {
             if (1...2).contains(version) { try migrateScreenshotText() }
             if (1...3).contains(version) { try migrateVectorNames() }
             if (1...4).contains(version) { try migrateLongFiles() }
+            if (1...5).contains(version) { try migrateChineseSearch() }
         }
     }
 
@@ -190,6 +199,24 @@ public final class IndexStore {
             PRAGMA user_version = 5;
             """)
     }
+
+    /// Schema 5 → 6: rebuild Chinese keyword keys from their original text. No file is reread or vector changed.
+    /// Names are recovered from their paths so filename/folder spelling stays consistent after an upgrade.
+    private func migrateChineseSearch() throws {
+        try db.execute("CREATE VIRTUAL TABLE fts_zh USING fts5(\(Self.ftsColumns))")
+        try db.query("""
+            SELECT fts.rowid, s.kind, f.path, coalesce(fts.original, fts.body)
+            FROM fts JOIN segments s ON s.id = fts.rowid JOIN files f ON f.id = s.file
+            """) { row in
+            let path = row.text(2) ?? ""
+            let isName = row.text(1) == SegmentKind.name.rawValue
+            let name = isName ? Self.nameText(path) : ""
+            let body = isName ? Self.folderText(path) : row.text(3) ?? ""
+            try db.run("INSERT INTO fts_zh(rowid, name, body, original) VALUES(?, ?, ?, ?)",
+                       [.int(row.int(0)), .text(SearchText.indexed(name))] + Self.keywordText(body))
+        }
+        try db.execute("DROP TABLE fts; ALTER TABLE fts_zh RENAME TO fts; PRAGMA user_version = 6;")
+    }
     // MARK: Meta
 
     public func meta(_ key: String) throws -> String? {
@@ -219,6 +246,7 @@ public final class IndexStore {
 
     /// Every file under one of `roots`.
     public func files(under roots: [String]) throws -> [FileRecord] {
+        let roots = Self.rootAliases(roots)
         var out: [FileRecord] = []
         // A folder inside another one listed is already covered (each file once).
         for root in roots where !roots.contains(where: { FolderSelection.isInside(root, $0) }) {
@@ -263,9 +291,9 @@ public final class IndexStore {
     public func move(_ id: Int64, to path: String) throws {
         try db.run("UPDATE files SET path = ? WHERE id = ?", [.text(path), .int(id)])
         try db.run("""
-            UPDATE fts SET name = ?, body = ? WHERE rowid IN (SELECT id FROM segments WHERE file = ? AND kind = 'name')
-            """, [.text(SearchText.normalized(Self.nameText(path))), .text(SearchText.normalized(Self.folderText(path))),
-                  .int(id)])
+            UPDATE fts SET name = ?, body = ?, original = ?
+            WHERE rowid IN (SELECT id FROM segments WHERE file = ? AND kind = 'name')
+            """, [.text(SearchText.indexed(Self.nameText(path)))] + Self.keywordText(Self.folderText(path)) + [.int(id)])
     }
 
     public func delete(_ id: Int64) throws {
@@ -276,7 +304,7 @@ public final class IndexStore {
     /// Removes every file that isn't under one of `roots` (folders taken out of the app). Returns how many went.
     @discardableResult
     public func prune(keepingUnder roots: [String]) throws -> Int {
-        let prefixes = roots.map { $0.hasSuffix("/") ? $0 : $0 + "/" }
+        let prefixes = Self.rootAliases(roots).map { $0.hasSuffix("/") ? $0 : $0 + "/" }
         var gone: [Int64] = []
         try db.query("SELECT id, path FROM files") { row in
             let path = row.text(1) ?? ""
@@ -383,15 +411,15 @@ public final class IndexStore {
 
     /// `body` and `original` for keyword search: the normalized text, and the text as written if that differs.
     static func keywordText(_ text: String) -> [SQLValue] {
-        let normalized = SearchText.normalized(text)
+        let normalized = SearchText.indexed(text)
         return [.text(normalized), normalized == text ? .null : .text(text)]
     }
 
     private func addNameRow(file: Int64, path: String) throws {
         try db.run("INSERT INTO segments(file, kind, modality) VALUES(?, 'name', 'none')", [.int(file)])
-        try db.run("INSERT INTO fts(rowid, name, body) VALUES(?, ?, ?)",
-                   [.int(db.lastInsertID), .text(SearchText.normalized(Self.nameText(path))),
-                    .text(SearchText.normalized(Self.folderText(path)))])
+        try db.run("INSERT INTO fts(rowid, name, body, original) VALUES(?, ?, ?, ?)",
+                   [.int(db.lastInsertID), .text(SearchText.indexed(Self.nameText(path)))]
+                    + Self.keywordText(Self.folderText(path)))
     }
 
     private func deleteSegments(of file: Int64, keepingName: Bool) throws {
